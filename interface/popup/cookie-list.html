@@ -1,0 +1,637 @@
+<!doctype html>
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="style.css" />
+    <title>Cookie-Editor Plus</title>
+  </head>
+
+  <body class="notransition">
+    <div id="pageTitle">
+      <h1 class="container">
+        Cookie-Editor Plus
+      </h1>
+      <div id="version"></div>
+      <div id="main-menu">
+        <button id="main-menu-button">
+          <svg class="icon">
+            <use href="../sprites/solid.svg#ellipsis-v"></use>
+          </svg>
+        </button>
+        <div id="main-menu-content">
+          <label
+            class="menu-item switch"
+            for="advanced-toggle-all"
+            id="advanced-toggle-all-label"
+          >
+            Show Advanced
+            <label class="switch">
+              <input
+                type="checkbox"
+                id="advanced-toggle-all"
+                aria-describedby="advanced-toggle-all-label"
+              />
+              <span class="slider"></span>
+            </label>
+          </label>
+          <button class="menu-item" id="menu-all-options">
+            See All Options
+            <svg class="icon">
+              <use href="../sprites/solid.svg#external-link-alt"></use>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="notification-container">
+      <div id="notification">
+        <span></span>
+        <button
+          id="notification-dismiss"
+          aria-label="Dismiss Notification"
+          type="button"
+        >
+          <svg class="icon"><use href="../sprites/solid.svg#times"></use></svg>
+        </button>
+      </div>
+    </div>
+
+    <div id="ad-container"></div>
+
+    <div id="domain-selector-container">
+      <div class="container">
+        <label for="domain-selector">Domain:</label>
+        <div class="domain-selector-wrapper">
+          <select id="domain-selector" title="Select domain to edit cookies for">
+            <option value="" selected>Current tab domain</option>
+          </select>
+        </div>
+        <button id="share-cookies" class="share-button" aria-label="Share cookies via URL" title="Share cookies via URL">
+          <svg class="icon">
+            <use href="../sprites/solid.svg#link"></use>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="main-content-wrapper">
+      <div id="cookie-container"></div>
+
+      <!-- Profile Management Section -->
+      <div id="profile-management" class="panel collapsed">
+        <div class="panel-section panel-section-header">
+          <div class="text-section-header">Profiles (Domain Specific)</div>
+          <div class="profile-header-actions">
+            <button id="profile-toggle" class="profile-toggle" aria-label="Toggle profile panel" type="button">
+              <svg class="icon toggle-icon">
+                <use href="../sprites/solid.svg#angle-down"></use>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="panel-section panel-section-formElements">
+          <div class="profile-selector-container">
+            <div class="profile-selector-with-actions">
+              <select id="profile-selector">
+                <option value="" disabled selected>Select a profile</option>
+              </select>
+              <button id="profile-actions" class="profile-menu-button" aria-label="Profile actions" type="button" title="Domain Profile Actions">
+                <svg class="icon">
+                  <use href="../sprites/solid.svg#ellipsis-v"></use>
+                </svg>
+              </button>
+            </div>
+            <div id="profile-status" class="profile-status none">No profile loaded</div>
+          </div>
+          <div class="profile-buttons">
+            <button id="save-profile" class="browser-style" title="Save current cookies as a profile">
+              <svg class="icon"><use href="../sprites/solid.svg#save"></use></svg>
+              Save
+            </button>
+            <button id="load-profile" class="browser-style" title="Load selected profile" disabled>
+              <svg class="icon"><use href="../sprites/solid.svg#upload"></use></svg>
+              Load
+            </button>
+            <button id="edit-profile" class="browser-style" title="Edit selected profile" disabled>
+              <svg class="icon"><use href="../sprites/solid.svg#edit"></use></svg>
+              Edit
+            </button>
+            <button id="delete-profile" class="browser-style danger" title="Delete selected profile" disabled>
+              <svg class="icon"><use href="../sprites/solid.svg#trash"></use></svg>
+              Delete
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel button-bar active" id="button-bar-default">
+        <div class="panel-section panel-section-footer">
+          <button
+            class="panel-section-footer-button"
+            id="create-cookie"
+            type="button"
+          >
+            <div>
+              <svg class="icon"><use href="../sprites/solid.svg#plus"></use></svg>
+              <div class="tooltip" role="tooltip">Add</div>
+            </div>
+          </button>
+          <div class="panel-section-footer-separator"></div>
+
+          <button
+            class="panel-section-footer-button danger"
+            id="delete-all-cookies"
+            type="button"
+          >
+            <div>
+              <svg class="icon">
+                <use href="../sprites/solid.svg#trash"></use>
+              </svg>
+              <div class="tooltip" role="tooltip">Delete All</div>
+            </div>
+          </button>
+          <div class="panel-section-footer-separator"></div>
+
+          <button
+            class="panel-section-footer-button"
+            id="import-cookies"
+            type="button"
+          >
+            <div>
+              <svg class="icon">
+                <use href="../sprites/solid.svg#file-import"></use>
+              </svg>
+              <div class="tooltip" role="tooltip">Import</div>
+            </div>
+          </button>
+          <div class="panel-section-footer-separator"></div>
+
+          <button
+            class="panel-section-footer-button"
+            id="export-cookies"
+            type="button"
+          >
+            <div>
+              <svg class="icon">
+                <use href="../sprites/solid.svg#file-export"></use>
+              </svg>
+              <div class="tooltip" role="tooltip">Export</div>
+            </div>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel button-bar" id="button-bar-add">
+      <div class="panel-section panel-section-footer">
+        <button
+          class="panel-section-footer-button"
+          id="return-list-add"
+          type="button"
+        >
+          <div>
+            <svg class="icon">
+              <use href="../sprites/solid.svg#arrow-left"></use>
+            </svg>
+            <div class="tooltip" role="tooltip">Cancel</div>
+          </div>
+        </button>
+        <div class="panel-section-footer-separator"></div>
+
+        <button
+          class="panel-section-footer-button primary"
+          id="save-create-cookie"
+          type="button"
+        >
+          <div>
+            <svg class="icon"><use href="../sprites/solid.svg#save"></use></svg>
+            <div class="tooltip" role="tooltip">Add</div>
+          </div>
+        </button>
+      </div>
+    </div>
+
+    <div class="panel button-bar" id="button-bar-import">
+      <div class="panel-section panel-section-footer">
+        <button
+          class="panel-section-footer-button"
+          id="return-list-import"
+          type="button"
+        >
+          <div>
+            <svg class="icon">
+              <use href="../sprites/solid.svg#arrow-left"></use>
+            </svg>
+            <div class="tooltip" role="tooltip">Cancel</div>
+          </div>
+        </button>
+        <div class="panel-section-footer-separator"></div>
+
+        <button
+          class="panel-section-footer-button primary"
+          id="save-import-cookie"
+          type="button"
+        >
+          <div>
+            <svg class="icon">
+              <use href="../sprites/solid.svg#file-import"></use>
+            </svg>
+            <div class="tooltip" role="tooltip">Import</div>
+          </div>
+        </button>
+      </div>
+    </div>
+
+    <script src="../lib/isPopup.js"></script>
+    <script type="module" src="cookie-list.js"></script>
+
+    <template id="tmp-cookie">
+      <li data-name="" class="cookie">
+        <div
+          class="header container"
+          tabindex="0"
+          role="button"
+          aria-expanded="false"
+        >
+          <svg class="icon arrow">
+            <use href="../sprites/solid.svg#angle-down"></use>
+          </svg>
+          <span class="header-name"></span>
+          <span class="header-extra-info"></span>
+          <div class="btns">
+            <button
+              class="delete"
+              data-tooltip-left="Delete"
+              aria-label="Delete"
+              tabindex="-1"
+              type="button"
+            >
+              <svg class="icon">
+                <use href="../sprites/solid.svg#trash"></use>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="expando" aria-hidden="true" role="region">
+          <div class="wrapper">
+            <div class="action-btns">
+              <button
+                class="delete"
+                data-tooltip="Delete"
+                aria-label="Delete"
+                type="button"
+              >
+                <svg class="icon">
+                  <use href="../sprites/solid.svg#trash"></use>
+                </svg>
+              </button>
+              <button
+                class="save"
+                data-tooltip="Save"
+                aria-label="Save"
+                type="submit"
+              >
+                <svg class="icon">
+                  <use href="../sprites/solid.svg#save"></use>
+                </svg>
+              </button>
+            </div>
+            <form data-id="" class="form container">
+              <div>
+                <label class="label-name">Name</label>
+                <input name="name" type="text" class="input-name" />
+              </div>
+              <div>
+                <label class="label-value">Value</label>
+                <textarea name="value" class="input-value"></textarea>
+              </div>
+              <button class="advanced-toggle" type="button">
+                Show Advanced
+              </button>
+              <div class="advanced-form">
+                <div>
+                  <label class="label-domain">Domain</label>
+                  <input name="domain" type="text" class="input-domain" />
+                </div>
+                <div>
+                  <label class="label-path">Path</label>
+                  <input name="path" type="text" class="input-path" />
+                </div>
+                <div>
+                  <label class="label-expiration">Expiration</label>
+                  <input
+                    name="expiration"
+                    type="text"
+                    class="input-expiration"
+                  />
+                </div>
+                <div>
+                  <label class="label-sameSite">Same Site</label>
+                  <select name="sameSite" class="input-sameSite">
+                    <option value="no_restriction">None</option>
+                    <option value="lax">Lax</option>
+                    <option value="strict">Strict</option>
+                  </select>
+                </div>
+                <div class="checkbox-list">
+                  <label class="label-hostOnly">
+                    <input
+                      type="checkbox"
+                      name="hostOnly"
+                      class="input-hostOnly"
+                    />
+                    Host Only
+                  </label>
+                  <label class="label-session">
+                    <input
+                      type="checkbox"
+                      name="session"
+                      class="input-session"
+                    />
+                    Session
+                  </label>
+                  <label class="label-secure">
+                    <input type="checkbox" name="secure" class="input-secure" />
+                    Secure
+                  </label>
+                  <label class="label-httpOnly">
+                    <input
+                      type="checkbox"
+                      name="httpOnly"
+                      class="input-httpOnly"
+                    />
+                    Http Only
+                  </label>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      </li>
+    </template>
+
+    <template id="tmp-import">
+      <form class="form container import">
+        <div>
+          <label for="content-import">
+            Supported format: JSON, Header string, Netscape.
+          </label>
+          <textarea
+            class="json"
+            name="content"
+            id="content-import"
+            placeholder='JSON:	&#10;[{"name":"Cookie","value":"text",[...]}] &#10;&#10;Header String:	&#10;Cookie=text;Editor=yes	&#10;&#10;Netscape:	&#10;# Netscape HTTP Cookie File	&#10;# [...]	&#10;cookie-editor.com[...]	Cookie	text'
+          ></textarea>
+        </div>
+      </form>
+    </template>
+
+    <template id="tmp-export">
+      <form class="form container export sbro">
+        <div>
+          <label for="content-export">Json Only Format Exporter</label>
+          <textarea
+            class="json"
+            name="content"
+            id="content-export"
+            placeholder="Export your  here"
+          >
+          </textarea>
+        </div>
+      </form>
+    </template>
+
+    <template id="tmp-create">
+      <form class="form container create">
+        <div>
+          <label for="name-create">Name</label>
+          <input name="name" type="text" value="" id="name-create" />
+        </div>
+        <div>
+          <label for="value-create">Value</label>
+          <textarea name="value" id="value-create"></textarea>
+        </div>
+      </form>
+    </template>
+
+    <template id="tmp-empty">
+      <p class="container" id="no-cookies">
+        This page does not have any cookies.
+      </p>
+    </template>
+
+    <template id="tmp-no-permission">
+      <div class="container" id="no-permission">
+        You do not have the permission required to read the cookies for this
+        page.
+        <div>
+          Request permission for...
+          <div class="button-container">
+            <button
+              id="request-permission"
+              title="Request permission to read cookies for this site."
+            >
+              This site
+            </button>
+            <button
+              id="request-permission-all"
+              title="Request permission to read cookies for all sites."
+            >
+              All sites
+            </button>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <template id="tmp-permission-impossible">
+      <div class="container" id="permission-impossible">
+        Cookie-Editor can't display cookies for this page.
+      </div>
+    </template>
+
+    <template id="tmp-search-bar">
+      <li>
+        <div id="searchContainer">
+          <svg class="icon search">
+            <use href="../sprites/solid.svg#search"></use>
+          </svg>
+          <input id="searchField" type="text" placeholder="Search" />
+        </div>
+      </li>
+    </template>
+
+    <template id="tmp-export-options">
+      <div id="export-menu">
+        <h3>Export As:</h3>
+        <button id="export-json" type="button">JSON</button>
+        <button id="export-headerstring" type="button">Header String</button>
+        <button id="export-netscape" type="button">Netscape</button>
+      </div>
+    </template>
+
+    <template id="tmp-ad-item">
+      <div>
+        <span class="ad-tag">Ad</span>
+        <div class="ad-link">
+          <a href="" target="_blank" rel="noopener noreferrer">Ad Text!</a>
+        </div>
+        <div class="ad-actions">
+          <button class="dont-show">Not interested</button>
+          <button class="later">Later</button>
+        </div>
+      </div>
+    </template>
+
+    <!-- Profile name prompt template -->
+    <template id="tmp-profile-name">
+      <form class="form container profile-name">
+        <div>
+          <label for="profile-name-input">Profile Name</label>
+          <input 
+            name="profileName" 
+            type="text" 
+            id="profile-name-input" 
+            placeholder="Enter profile name" 
+            required
+          />
+        </div>
+      </form>
+    </template>
+
+    <!-- Profile edit template -->
+    <template id="tmp-profile-edit">
+      <form class="form container profile-edit">
+        <div>
+          <label for="profile-edit-name">Rename Profile</label>
+          <input 
+            name="profileNewName" 
+            type="text" 
+            id="profile-edit-name" 
+            placeholder="Enter new profile name" 
+            required
+          />
+        </div>
+      </form>
+    </template>
+
+    <!-- Domain-specific profile actions menu -->
+    <div id="domain-profile-menu" class="domain-actions-menu">
+      <button class="domain-action-item" id="export-domain-profiles">
+        <svg class="icon"><use href="../sprites/solid.svg#file-export"></use></svg>
+        Export Domain Profiles
+      </button>
+      <button class="domain-action-item" id="import-domain-profiles">
+        <svg class="icon"><use href="../sprites/solid.svg#file-import"></use></svg>
+        Import Domain Profiles
+      </button>
+    </div>
+
+    <template id="tmp-share-dialog">
+      <div class="share-dialog container">
+        <h3>Share Cookies Via URL</h3>
+        <p class="share-warning">Warning: Only share cookie URLs with trusted recipients. The link contains encoded cookie data.</p>
+        <div class="share-options">
+          <div class="option-group">
+            <label>
+              <input type="checkbox" id="share-profiles" />
+              Share profiles instead of current cookies
+            </label>
+          </div>
+          <div class="share-profile-selector-container" style="display: none;">
+            <label for="share-profile-selector">Select profile:</label>
+            <select id="share-profile-selector">
+              <option value="all" selected>All profiles</option>
+              <!-- Profiles will be added dynamically -->
+            </select>
+          </div>
+          <div class="option-group">
+            <label>
+              <input type="checkbox" id="share-encrypt" />
+              Password encrypt (AES-256-GCM)
+            </label>
+          </div>
+          <div class="password-container" style="display: none;">
+            <div class="password-input-group">
+              <input type="password" id="share-password" placeholder="Enter password" />
+              <button id="show-password" class="browser-style" title="Show/Hide Password">
+                <svg class="icon"><use href="../sprites/solid.svg#eye"></use></svg>
+              </button>
+            </div>
+            <div class="password-strength" id="password-strength"></div>
+          </div>
+          <div class="option-group">
+            <label>
+              <input type="checkbox" id="share-expire" />
+              Link expires after 24 hours
+            </label>
+          </div>
+          <div class="option-group">
+            <label>
+              <input type="checkbox" id="share-never-expire" />
+              Link never expires
+            </label>
+          </div>
+        </div>
+        <div class="share-url-container">
+          <input id="share-url-field" type="text" readonly />
+          <button id="copy-share-url" class="browser-style">
+            <svg class="icon"><use href="../sprites/solid.svg#copy"></use></svg>
+            Copy
+          </button>
+        </div>
+        <div class="share-actions">
+          <button id="share-cancel" class="browser-style">Close</button>
+        </div>
+      </div>
+    </template>
+    
+    <template id="tmp-import-confirm">
+      <div class="share-dialog container">
+        <h3>Import Shared Cookies</h3>
+        <p>This URL contains shared cookies for <span id="shared-domain"></span>.</p>
+        <p>How would you like to import these cookies?</p>
+        <div class="cookie-preview">
+          <div id="cookie-count"></div>
+          <div id="cookie-expiry"></div>
+        </div>
+        <div class="import-options">
+          <div class="option-description">
+            <strong>Overwrite:</strong> Delete all existing cookies and add the shared ones
+          </div>
+          <div class="option-description">
+            <strong>Merge:</strong> Add shared cookies without removing existing ones
+          </div>
+        </div>
+        <div class="share-actions">
+          <button id="import-cancel" class="browser-style">Cancel</button>
+          <button id="import-merge" class="browser-style">Merge</button>
+          <button id="import-overwrite" class="browser-style primary">Overwrite</button>
+        </div>
+      </div>
+    </template>
+
+    <template id="tmp-password-prompt">
+      <div class="share-dialog container">
+        <h3>Enter Password</h3>
+        <p>This URL contains password-encrypted cookies. Please enter the password to decrypt and import them.</p>
+        <div class="password-container" style="display: block; margin-top: 16px;">
+          <div class="password-input-group">
+            <input type="password" id="decrypt-password" placeholder="Enter password" />
+            <button id="show-decrypt-password" class="browser-style" title="Show/Hide Password">
+              <svg class="icon"><use href="../sprites/solid.svg#eye"></use></svg>
+            </button>
+          </div>
+          <div id="decrypt-error" class="password-error" style="display: none;"></div>
+        </div>
+        <div class="share-actions">
+          <button id="decrypt-cancel" class="browser-style">Cancel</button>
+          <button id="decrypt-confirm" class="browser-style primary">Decrypt</button>
+        </div>
+      </div>
+    </template>
+  </body>
+</html>
