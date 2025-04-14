@@ -137,6 +137,17 @@
     </fieldset>
 
     <fieldset>
+      <legend>Confirmation Dialogs</legend>
+      <div class="input-container">
+        Reset Confirmation Dialogs
+        <button id="reset-confirmations">Reset Confirmations</button>
+        <div class="hint">
+          This will reset all "Don't show again" confirmations. Delete and Delete All confirmations will be shown again.
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset>
       <legend>All Cookies</legend>
       <div class="notice danger">
         <svg class="icon">
@@ -184,13 +195,15 @@
       </p>
       <p>
         <strong>Cookie-Editor Plus</strong><br />
-        This enhanced version includes additional features developed with Claude 3.7 Sonnet:<br />
+        This enhanced version includes additional features developed with Claude 3.7 Sonnet & Gemini 2.5 Pro Exp:<br /><br />
         - <strong>Multi-domain management</strong> for editing cookies beyond the current tab<br />
         - <strong>Advanced profile system</strong> with one-click import/export functionality<br />
         - <strong>Fluid UI experience</strong> with improved animations and layout fixes<br />
         - <strong>Optimized performance</strong> for faster loading and smoother operation<br />
         - <strong>Easy URL sharing</strong> for both cookies and profiles<br />
         - <strong>Zero-knowledge military-grade protection</strong> for sharing cookies and profiles (AES-256 encryption)<br />
+        - <strong>Resizable Popup:</strong> Adjust the popup window size to your preference.<br />
+        - <strong>Bug Fixes:</strong> Various fixes and improvements for enhanced stability.<br />
         <a href="https://github.com/xtremextr/cookie-editor-plus" target="_blank">View Cookie-Editor Plus on GitHub</a>
       </p>
       <p class="github-sponsor hidden">
@@ -200,7 +213,7 @@
         <a href="https://github.com/sponsors/Moustachauve/" target="_blank">Learn more</a>. (Moustachauve)
       </p>
       <p class="message">
-        Thank you for using Cookie-Editor Plus! We hope you enjoy the enhanced functionality and improvements. <strong>Version 2.3.0</strong>
+        Thank you for using Cookie-Editor Plus! We hope you enjoy the enhanced functionality and improvements. <strong id="version-display">Loading version...</strong>
       </p>
       <p class="disclaimer">
         This project is not an official Google project. It is not supported by

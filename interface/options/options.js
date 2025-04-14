@@ -27,8 +27,20 @@ document.addEventListener('DOMContentLoaded', async (event) => {
   await optionHandler.loadOptions();
   themeHandler.updateTheme();
   setFormValues();
+  displayVersion();
   optionHandler.on('optionsChanged', setFormValues);
   setInputEvents();
+
+  /**
+   * Displays the current extension version from manifest.json
+   */
+  function displayVersion() {
+    const versionDisplay = document.getElementById('version-display');
+    if (versionDisplay) {
+      const version = browserDetector.getApi().runtime.getManifest().version;
+      versionDisplay.textContent = 'Version ' + version;
+    }
+  }
 
   /**
    * Sets the value of the form based on the saved options.
@@ -123,6 +135,13 @@ document.addEventListener('DOMContentLoaded', async (event) => {
       .getElementById('export-all-netscape')
       .addEventListener('click', async (event) => {
         await exportCookiesAsNetscape();
+      });
+
+    // Add event listener for the reset confirmations button
+    document
+      .getElementById('reset-confirmations')
+      .addEventListener('click', async (event) => {
+        await resetConfirmationDialogs();
       });
   }
 
@@ -219,5 +238,14 @@ document.addEventListener('DOMContentLoaded', async (event) => {
     } else {
       document.body.classList.add('notransition');
     }
+  }
+
+  /**
+   * Resets all confirmation dialog preferences
+   */
+  async function resetConfirmationDialogs() {
+    await storageHandler.removeLocal('showDeleteConfirmation');
+    await storageHandler.removeLocal('showDeleteAllConfirmation');
+    alert('All confirmation dialogs have been reset.');
   }
 });

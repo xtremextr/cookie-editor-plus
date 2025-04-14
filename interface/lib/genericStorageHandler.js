@@ -65,4 +65,28 @@ export class GenericStorageHandler extends EventEmitter {
       });
     }
   }
+
+  /**
+   * Removes a value from the LocalStorage.
+   * @param {string | string[]} keyOrKeys Key or array of keys to remove.
+   * @return {Promise}
+   */
+  async removeLocal(keyOrKeys) {
+    const self = this;
+    const keys = Array.isArray(keyOrKeys) ? keyOrKeys : [keyOrKeys];
+
+    if (this.browserDetector.supportsPromises()) {
+      return this.browserDetector.getApi().storage.local.remove(keys);
+    } else {
+      return new Promise((resolve, reject) => {
+        this.browserDetector.getApi().storage.local.remove(keys, () => {
+          const error = self.browserDetector.getApi().runtime.lastError;
+          if (error) {
+            reject(error);
+          }
+          resolve();
+        });
+      });
+    }
+  }
 }

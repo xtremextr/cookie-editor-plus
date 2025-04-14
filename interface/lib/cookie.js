@@ -224,20 +224,85 @@ export class Cookie {
       self.afterSessionChanged(e.target.checked);
     });
 
+    const copyOptionsButton = this.baseHtml.querySelector(
+      '.copy-options-button',
+    );
+    const copyOptionsMenu = this.baseHtml.querySelector(
+      '.copy-options-menu',
+    );
+    
+    // Add null checks for sidepanel - prevent TypeError if these elements don't exist
+    if (copyOptionsButton && copyOptionsMenu) {
+      const copyValueButton = copyOptionsMenu.querySelector('.copy-value');
+      const copyCookieButton = copyOptionsMenu.querySelector('.copy-cookie');
+
+      copyOptionsButton.addEventListener('click', function (e) {
+        e.stopPropagation(); // Prevent click from propagating to header/expando
+        self.toggleCopyOptionsMenu(copyOptionsMenu);
+      });
+
+      copyValueButton.addEventListener('click', function (e) {
+        e.stopPropagation();
+        self.copyValueToClipboard();
+        self.toggleCopyOptionsMenu(copyOptionsMenu); // Close menu after copy
+      });
+
+      copyCookieButton.addEventListener('click', function (e) {
+        e.stopPropagation();
+        self.copyCookieToClipboard();
+        self.toggleCopyOptionsMenu(copyOptionsMenu); // Close menu after copy
+      });
+
+      // Add listener to close menu when clicking outside
+      document.addEventListener('click', function (e) {
+        if (!copyOptionsMenu.contains(e.target) && !copyOptionsButton.contains(e.target)) {
+          if (copyOptionsMenu.style.display !== 'none') {
+            self.toggleCopyOptionsMenu(copyOptionsMenu);
+          }
+        }
+      });
+    }
+
     const advancedToggleButton = form.querySelector('.advanced-toggle');
     const advancedForm = form.querySelector('.advanced-form');
-    advancedToggleButton.addEventListener('click', function () {
-      advancedForm.classList.toggle('show');
+    advancedToggleButton.addEventListener('click', function (e) {
+      // Prevent event propagation to avoid accidental closing of parent expandos
+      e.stopPropagation();
+      
+      // First toggle the button text for immediate user feedback
       if (advancedForm.classList.contains('show')) {
-        advancedToggleButton.textContent = 'Hide Advanced';
-      } else {
         advancedToggleButton.textContent = 'Show Advanced';
+        // For hiding, transition is much simpler and faster
+        advancedForm.style.opacity = '0';
+        advancedForm.classList.remove('show');
+        
+        // Immediate resize with very short display delay
+        requestAnimationFrame(() => {
+          Animate.resizeSlide(form.parentElement.parentElement);
+          setTimeout(() => {
+            advancedForm.style.display = 'none';
+            advancedForm.style.height = '0';
+          }, 150); // Just enough time for opacity transition
+        });
+      } else {
+        advancedToggleButton.textContent = 'Hide Advanced';
+        advancedForm.classList.add('show');
+        advancedForm.style.display = 'block';
+        advancedForm.style.height = 'auto';
+        
+        // For showing, ensure smooth animation with requestAnimationFrame
+        requestAnimationFrame(() => {
+          advancedForm.style.opacity = '1';
+          Animate.resizeSlide(form.parentElement.parentElement);
+        });
       }
-      Animate.resizeSlide(form.parentElement.parentElement);
     });
 
     if (this.optionHandler.getCookieAdvanced()) {
       advancedForm.classList.add('show');
+      advancedForm.style.display = 'block';
+      advancedForm.style.opacity = '1';
+      advancedForm.style.height = 'auto';
       advancedToggleButton.textContent = 'Hide Advanced';
     }
   }
@@ -454,10 +519,7 @@ export class Cookie {
    * @param {Element} node Element to animate.
    */
   animateSuccessOnNode(node) {
-    node.classList.remove('anim-success');
-    setTimeout(() => {
-      node.classList.add('anim-success');
-    }, 20);
+    Animate.onSuccess(node);
   }
 
   /**
@@ -579,5 +641,79 @@ export class Cookie {
       hash |= 0; // Convert to 32bit integer
     }
     return hash;
+  }
+
+  /**
+   * Cleans up resources used by this cookie instance, removing event listeners
+   * and references to DOM elements to prevent memory leaks.
+   */
+  destroy() {
+    if (!this.baseHtml) {
+      return; // Already destroyed or never generated
+    }
+    
+    const form = this.baseHtml.querySelector('form');
+    if (form) {
+      // Find elements with listeners
+      const inputHostOnly = form.querySelector('.input-hostOnly');
+      const inputSession = form.querySelector('.input-session');
+      const advancedToggleButton = form.querySelector('.advanced-toggle');
+      
+      // TODO: Storing references to listener functions would be cleaner
+      // For now, we rely on the browser to remove listeners when the element is GC'd
+      // after we remove our reference, but explicitly removing would be safer.
+      // We can't easily remove the anonymous functions defined inline.
+    }
+    
+    // Remove the reference to the DOM element
+    this.baseHtml = null;
+    
+    // Optionally, remove other references if needed
+    // this.cookie = null;
+    // this.optionHandler = null;
+  }
+
+  toggleCopyOptionsMenu(menu) {
+    if (!menu) return; // Add null check to prevent errors
+    
+    if (menu.style.display === 'none') {
+      // Close other open menus before opening this one
+      document.querySelectorAll('.copy-options-menu').forEach(otherMenu => {
+        if (otherMenu !== menu) {
+          otherMenu.style.display = 'none';
+        }
+      });
+      menu.style.display = 'block';
+    } else {
+      menu.style.display = 'none';
+    }
+  }
+
+  copyValueToClipboard() {
+    navigator.clipboard.writeText(this.cookie.value).then(() => {
+      this.showSuccessAnimationOnButton('.copy-value'); // Optional: Provide visual feedback
+    }).catch(err => {
+      console.error('Failed to copy value: ', err);
+    });
+  }
+
+  copyCookieToClipboard() {
+    const cookieString = JSON.stringify(this.cookie, null, 2); // Pretty print JSON
+    navigator.clipboard.writeText(cookieString).then(() => {
+      this.showSuccessAnimationOnButton('.copy-cookie'); // Optional: Provide visual feedback
+    }).catch(err => {
+      console.error('Failed to copy cookie: ', err);
+    });
+  }
+
+  showSuccessAnimationOnButton(buttonSelector) {
+    const button = this.baseHtml.querySelector(buttonSelector);
+    if (button) {
+      // Add a temporary success class or visual cue
+      button.classList.add('success-feedback'); 
+      setTimeout(() => {
+        button.classList.remove('success-feedback');
+      }, 1000); // Remove feedback after 1 second
+    }
   }
 }

@@ -11,7 +11,7 @@
   <body class="notransition">
     <div id="pageTitle">
       <h1 class="container">
-        Cookie-Editor Plus
+        Cookie-Editor +
       </h1>
       <div id="version"></div>
       <div id="main-menu">
@@ -262,6 +262,23 @@
           <span class="header-name"></span>
           <span class="header-extra-info"></span>
           <div class="btns">
+            <div class="copy-options-container">
+              <button
+                class="copy-options-button"
+                data-tooltip-left="Copy options"
+                aria-label="Copy options"
+                tabindex="-1"
+                type="button"
+              >
+                <svg class="icon">
+                  <use href="../sprites/solid.svg#copy"></use>
+                </svg>
+              </button>
+              <div class="copy-options-menu" style="display: none;">
+                <button class="copy-value" type="button">Copy Value</button>
+                <button class="copy-cookie" type="button">Copy Whole Cookie</button>
+              </div>
+            </div>
             <button
               class="delete"
               data-tooltip-left="Delete"
@@ -520,19 +537,22 @@
 
     <!-- Domain-specific profile actions menu -->
     <div id="domain-profile-menu" class="domain-actions-menu">
-      <button class="domain-action-item" id="export-domain-profiles">
-        <svg class="icon"><use href="../sprites/solid.svg#file-export"></use></svg>
-        Export Domain Profiles
-      </button>
       <button class="domain-action-item" id="import-domain-profiles">
         <svg class="icon"><use href="../sprites/solid.svg#file-import"></use></svg>
         Import Domain Profiles
+      </button>
+      <button class="domain-action-item" id="export-domain-profiles">
+        <svg class="icon"><use href="../sprites/solid.svg#file-export"></use></svg>
+        Export Domain Profiles
       </button>
     </div>
 
     <template id="tmp-share-dialog">
       <div class="share-dialog container">
         <h3>Share Cookies Via URL</h3>
+        <button id="share-close-x" class="dialog-close-button" aria-label="Close">
+          <svg class="icon"><use href="../sprites/solid.svg#times"></use></svg>
+        </button>
         <p class="share-warning">Warning: Only share cookie URLs with trusted recipients. The link contains encoded cookie data.</p>
         <div class="share-options">
           <div class="option-group">
@@ -617,8 +637,11 @@
     <template id="tmp-password-prompt">
       <div class="share-dialog container">
         <h3>Enter Password</h3>
+        <button id="decrypt-cancel-x" class="dialog-close-button" aria-label="Close">
+          <svg class="icon"><use href="../sprites/solid.svg#times"></use></svg>
+        </button>
         <p>This URL contains password-encrypted cookies. Please enter the password to decrypt and import them.</p>
-        <div class="password-container" style="display: block; margin-top: 16px;">
+        <div class="password-container" style="display: block; margin: 16px 0;">
           <div class="password-input-group">
             <input type="password" id="decrypt-password" placeholder="Enter password" />
             <button id="show-decrypt-password" class="browser-style" title="Show/Hide Password">
@@ -630,6 +653,60 @@
         <div class="share-actions">
           <button id="decrypt-cancel" class="browser-style">Cancel</button>
           <button id="decrypt-confirm" class="browser-style primary">Decrypt</button>
+        </div>
+      </div>
+    </template>
+    
+    <!-- Copy options menu template -->
+    <template id="tmp-copy-options">
+      <div id="copy-options-menu" class="copy-options-menu">
+        <button id="copy-value" type="button">Copy Value</button>
+        <button id="copy-cookie" type="button">Copy Whole Cookie</button>
+      </div>
+    </template>
+    
+    <!-- Delete cookie confirmation dialog template -->
+    <template id="tmp-confirm-delete">
+      <div id="confirm-delete-dialog">
+        <div class="dialog-content-box">
+          <button id="cancel-delete-x" class="dialog-close-button" aria-label="Close">
+            <svg class="icon"><use href="../sprites/solid.svg#times"></use></svg>
+          </button>
+          <h3>Confirm Deletion</h3>
+          <p>Are you sure you want to delete this cookie?</p>
+          <div class="confirm-options">
+            <label>
+              <input type="checkbox" id="dont-show-again" />
+              Don't ask again for single cookie deletion
+            </label>
+          </div>
+          <div class="dialog-actions">
+            <button id="cancel-delete" class="browser-style cancel-btn">Cancel</button>
+            <button id="confirm-delete" class="browser-style danger confirm-btn">Delete</button>
+          </div>
+        </div>
+      </div>
+    </template>
+    
+    <!-- Delete all cookies confirmation dialog template -->
+    <template id="tmp-confirm-delete-all">
+      <div id="confirm-delete-all-dialog">
+        <div class="dialog-content-box">
+          <button id="cancel-delete-all-x" class="dialog-close-button" aria-label="Close">
+            <svg class="icon"><use href="../sprites/solid.svg#times"></use></svg>
+          </button>
+          <h3>Confirm Delete All</h3>
+          <p>Are you sure you want to delete all cookies for the current view?</p>
+          <div class="confirm-options">
+            <label>
+              <input type="checkbox" id="dont-show-again-all" />
+              Don't ask again for deleting all cookies
+            </label>
+          </div>
+          <div class="dialog-actions">
+            <button id="cancel-delete-all" class="browser-style cancel-btn">Cancel</button>
+            <button id="confirm-delete-all" class="browser-style danger confirm-btn">Delete All</button>
+          </div>
         </div>
       </div>
     </template>

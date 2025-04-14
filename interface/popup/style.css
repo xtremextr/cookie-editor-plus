@@ -65,7 +65,7 @@ svg.icon {
   top: 14px;
   right: 36px;
   font-size: 10px;
-  color: var(--primary-border-color);
+  color: #2e8b57;
   user-select: none;
 }
 
@@ -277,8 +277,38 @@ button:focus {
 }
 
 #domain-selector option {
-  background-color: var(--primary-surface-color);
   color: var(--primary-text-color);
+  background-color: var(--dropdown-surface-color);
+  padding: 5px;
+}
+
+/* Custom domain option styling */
+#domain-selector option.custom-domain-option {
+  font-style: italic;
+  color: var(--primary-highlight-color);
+  border-top: 1px solid var(--primary-border-color);
+  padding-top: 8px;
+  margin-top: 5px;
+}
+
+/* Custom domain input field styling */
+#custom-domain-input {
+  font-size: 14px;
+  color: var(--primary-text-color);
+  background-color: var(--input-surface-color);
+  border: 1px solid var(--primary-border-color);
+  border-radius: 4px;
+  transition: border-color 0.2s;
+}
+
+#custom-domain-input:focus {
+  border-color: var(--primary-highlight-color);
+  outline: none;
+}
+
+#custom-domain-input::placeholder {
+  color: var(--secondary-text-color);
+  opacity: 0.7;
 }
 
 /* Chrome/Edge/Safari specific select styling */
@@ -411,13 +441,15 @@ button:focus {
   min-height: 100px;
   flex: 1;
   max-height: none;
-  overflow-y: auto;
+  overflow-y: auto !important;
   background-color: var(--secondary-surface-color);
   transition: height 0.3s ease-in-out;
   margin-bottom: 0;
   border-radius: 4px;
   border: 1px solid var(--primary-border-color);
   contain: paint;
+  will-change: contents;
+  -webkit-overflow-scrolling: touch;
 }
 
 #no-cookies,
@@ -488,12 +520,8 @@ button:focus {
 }
 
 #cookie-container li .header .btns {
-  display: block;
-  opacity: 0;
-  position: absolute;
-  right: 5px;
-  top: 4px;
-  transition: all 100ms ease;
+  display: flex;
+  align-items: center;
 }
 
 /* Firefox display outlines in a strange way */
@@ -548,6 +576,9 @@ button:focus {
   overflow: hidden;
   transition: max-height 0.25s cubic-bezier(0.4, 0.0, 0.2, 1);
   contain: content;
+  will-change: max-height;
+  position: relative;
+  z-index: 1;
 }
 
 #cookie-container .expando .wrapper {
@@ -840,7 +871,7 @@ body,
   color: var(--notification-text-color);
   font-size: 12px;
   pointer-events: auto;
-  animation-duration: 0.3s;
+  animation-duration: 0.2s;
   animation-fill-mode: both;
   opacity: 0;
   overflow-wrap: break-word;
@@ -861,7 +892,7 @@ body,
 
 @keyframes fadeInDown {
   from {
-    transform: translate3d(0, -15px, 0);
+    transform: translate3d(0, -10px, 0);
     opacity: 0;
   }
 
@@ -877,7 +908,7 @@ body,
   }
 
   to {
-    transform: translate3d(0, -15px, 0);
+    transform: translate3d(0, -10px, 0);
     opacity: 0;
   }
 }
@@ -992,9 +1023,20 @@ body,
 
 .advanced-form {
   display: none;
+  overflow: hidden;
+  opacity: 0;
+  height: 0;
+  transition: opacity 0.15s ease-out;
+  margin-top: 0;
+  position: relative;
+  will-change: opacity, height;
 }
 .advanced-form.show {
   display: block;
+  opacity: 1;
+  height: auto;
+  margin-top: 5px;
+  margin-bottom: 5px;
 }
 .advanced-toggle {
   display: block;
@@ -1411,10 +1453,34 @@ body,
   box-sizing: border-box;
   width: 90%;
   z-index: 1000;
+  position: relative;
 }
 
-.share-dialog.container {
-  padding: 16px;
+/* Close X button for dialog */
+.dialog-close-button {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+}
+
+.dialog-close-button:hover {
+  background-color: var(--secondary-surface-color);
+}
+
+.dialog-close-button .icon {
+  width: 12px;
+  height: 12px;
+  fill: var(--primary-text-color);
 }
 
 .share-dialog h3 {
@@ -1439,7 +1505,22 @@ body,
   margin-bottom: 16px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
+}
+
+.confirm-options {
+  margin: 16px 0;
+}
+
+.confirm-options label {
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.confirm-options input[type="checkbox"] {
+  margin-right: 8px;
 }
 
 .share-profile-selector-container {
@@ -1491,7 +1572,8 @@ body,
   margin-bottom: 8px;
 }
 
-#share-password {
+#share-password,
+#decrypt-password {
   flex: 1;
   padding: 8px;
   border: 1px solid var(--primary-border-color);
@@ -1500,7 +1582,8 @@ body,
   color: var(--primary-text-color);
 }
 
-#show-password {
+#show-password,
+#show-decrypt-password {
   padding: 8px;
   border: 1px solid var(--primary-border-color);
   border-left: none;
@@ -1512,7 +1595,8 @@ body,
   justify-content: center;
 }
 
-#show-password:hover {
+#show-password:hover,
+#show-decrypt-password:hover {
   background-color: var(--secondary-surface-color);
 }
 
@@ -1578,7 +1662,7 @@ body,
 
 .share-actions {
   display: flex;
-  justify-content: flex-end;
+  justify-content: center;
   gap: 8px;
 }
 
@@ -1630,4 +1714,228 @@ body,
 
 #cookie-count:last-child, #cookie-expiry:last-child {
   margin-bottom: 0;
+}
+
+/* Resize functionality */
+#resize-toggle-button {
+  position: absolute;
+  top: 6px;
+  right: 70px;
+  height: 30px;
+  width: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: 40px;
+  cursor: pointer;
+}
+
+#resize-toggle-button:hover {
+  background-color: var(--secondary-surface-color);
+}
+
+#resize-toggle-button:focus-visible {
+  outline: 2px solid var(--primary-outline-color);
+}
+
+#resize-toggle-button.active {
+  color: #a52a2a;
+}
+
+#resize-toggle-button.active svg {
+  fill: #a52a2a;
+}
+
+#resize-handle {
+  position: fixed;
+  bottom: 0;
+  right: 0;
+  width: 20px;
+  height: 20px;
+  cursor: nwse-resize;
+  z-index: 9999;
+  background: linear-gradient(135deg, transparent 50%, #a52a2a 50%);
+  border-radius: 0 0 5px 0;
+}
+
+.resize-limitation-tooltip {
+  position: fixed;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 12px;
+  background-color: rgba(0, 0, 0, 0.75);
+  color: white;
+  border-radius: 4px;
+  font-size: 12px;
+  z-index: 10000;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+  animation: fadeInOut 3s ease-in-out;
+}
+
+/* Add styles for the copy options button and menu */
+.cookie .header .btns {
+  display: flex; /* Align buttons horizontally */
+  align-items: center;
+}
+
+.copy-options-container {
+  position: relative; /* Needed for absolute positioning of the menu */
+  margin-right: 4px; /* Add some space between copy and delete buttons */
+}
+
+.copy-options-button {
+  background: none;
+  border: none;
+  padding: 4px; /* Adjust padding as needed */
+  cursor: pointer;
+  display: flex; /* Align icon nicely */
+  align-items: center;
+  justify-content: center;
+  color: var(--button-color);
+}
+
+.copy-options-button svg.icon {
+  width: 14px; /* Adjust size as needed */
+  height: 14px;
+}
+
+.copy-options-button:hover {
+  background-color: var(--button-hover-bg);
+}
+
+.copy-options-menu {
+  position: absolute;
+  top: 100%; /* Position below the button */
+  right: 0; /* Align to the right of the container */
+  background-color: var(--menu-surface-color);
+  border: 1px solid var(--menu-border);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  z-index: 100; /* Ensure it appears above other elements */
+  min-width: 150px; /* Set a minimum width */
+  padding: 5px 0;
+  border-radius: 3px;
+}
+
+.copy-options-menu button {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  text-align: left;
+  padding: 8px 12px;
+  cursor: pointer;
+  color: var(--text-color);
+  font-size: 13px;
+}
+
+.copy-options-menu button:hover {
+  background-color: var(--menu-item-hover-bg);
+}
+
+/* Optional: Style for success feedback */
+.copy-options-menu button.success-feedback {
+  background-color: #d4edda; /* Light green background */
+  color: #155724; /* Dark green text */
+  transition: background-color 0.2s ease-out;
+}
+
+/* Ensure expando content doesn't overlap menu */
+.cookie .expando {
+  position: relative; /* Needed for z-index stacking */
+  z-index: 1; /* Lower than the copy menu */
+}
+
+/* Confirmation Dialog Overlays */
+#confirm-delete-dialog,
+#confirm-delete-all-dialog {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5); /* Semi-transparent background */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  opacity: 0;
+  transition: opacity 0.2s ease-in-out;
+  pointer-events: none;
+}
+
+#confirm-delete-dialog.visible,
+#confirm-delete-all-dialog.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Inner Content Box for Confirmation Dialogs */
+.dialog-content-box {
+  background-color: var(--primary-surface-color);
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  width: 90%;
+  max-width: 400px;
+  text-align: center;
+  position: relative; /* For positioning the close button */
+}
+
+.dialog-content-box h3 {
+  margin-top: 0;
+  margin-bottom: 15px;
+  font-size: 1.1em;
+  font-weight: 600;
+}
+
+.dialog-content-box p {
+  margin-bottom: 15px;
+  font-size: 0.95em;
+  color: var(--secondary-text-color);
+}
+
+.dialog-content-box .confirm-options {
+  margin-bottom: 20px;
+  text-align: left;
+}
+
+.dialog-content-box .confirm-options label {
+  font-size: 0.9em;
+  display: flex;
+  align-items: center;
+}
+
+.dialog-content-box .confirm-options input[type="checkbox"] {
+  margin-right: 6px;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.dialog-actions button {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.dialog-actions .cancel-btn {
+  background-color: var(--secondary-surface-color);
+  color: var(--primary-text-color);
+}
+
+.dialog-actions .cancel-btn:hover {
+  background-color: var(--secondary-surface-hover-color);
+}
+
+.dialog-actions .confirm-btn {
+  /* Styles for confirm button (danger) already exist, leveraging existing variables */
 }

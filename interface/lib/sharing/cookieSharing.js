@@ -318,10 +318,14 @@ export function extractSharedDataFromUrl(url) {
       const encodedParams = hash.substring(ENCRYPTED_PROFILE_PREFIX.length + 1);
       
       try {
-        const firstEqual = encodedParams.indexOf('=');
-        const paramsStr = firstEqual !== -1 ? encodedParams : '';
+        // Parse the parameters from the URL
+        const params = new URLSearchParams(encodedParams);
         
-        const params = new URLSearchParams(paramsStr);
+        // Log the params for debugging
+        console.log('Extracted encrypted profile params:', 
+          params.has('data') ? 'has data' : 'no data',
+          params.has('salt') ? 'has salt' : 'no salt',
+          params.has('iv') ? 'has iv' : 'no iv');
         
         // We need all these parameters for successful decryption
         if (params.has('data') && params.has('salt') && params.has('iv')) {
@@ -362,10 +366,14 @@ export function extractSharedDataFromUrl(url) {
       const encodedParams = hash.substring(ENCRYPTED_PREFIX.length + 1);
       
       try {
-        const firstEqual = encodedParams.indexOf('=');
-        const paramsStr = firstEqual !== -1 ? encodedParams : '';
+        // Extract and parse the parameters
+        const params = new URLSearchParams(encodedParams);
         
-        const params = new URLSearchParams(paramsStr);
+        // Log the params for debugging
+        console.log('Extracted encrypted cookie params:', 
+          params.has('data') ? 'has data' : 'no data',
+          params.has('salt') ? 'has salt' : 'no salt',
+          params.has('iv') ? 'has iv' : 'no iv');
         
         // We need all these parameters for successful decryption
         if (params.has('data') && params.has('salt') && params.has('iv')) {
@@ -381,6 +389,7 @@ export function extractSharedDataFromUrl(url) {
         }
       } catch (parseError) {
         console.error('Error parsing encrypted cookie parameters:', parseError);
+        console.error('Raw encoded params:', encodedParams);
       }
       
       return null;

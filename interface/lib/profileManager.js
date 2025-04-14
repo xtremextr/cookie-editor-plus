@@ -297,7 +297,7 @@ export class ProfileManager extends EventEmitter {
    * @return {Promise<boolean>} True if modified, false if matches or no profile loaded
    */
   async checkIfCookiesModified(domain, currentCookies) {
-    if (!domain || !currentCookies || !this.currentCookieState[domain]) {
+    if (!domain) {
       return false;
     }
     
@@ -308,7 +308,32 @@ export class ProfileManager extends EventEmitter {
         return false;
       }
       
-      // Quick count check first - if counts differ, cookies must be modified
+      // An empty array (or null/undefined) with a loaded profile should be marked as modified
+      if (!currentCookies || currentCookies.length === 0) {
+        // If we had cookies before (count > 0) and now have none, it's definitely modified
+        if (metadata[domain].cookieCount > 0) {
+          await this.markCookiesAsModified(domain);
+          return true;
+        }
+      }
+      
+      // If we don't have a cookie state to compare against, but have metadata,
+      // we need to load the profile data for comparison
+      if (!this.currentCookieState[domain]) {
+        // Get the profile to recreate the cookie state
+        const profileName = metadata[domain].lastLoaded;
+        const profile = await this.getProfile(domain, profileName);
+        
+        if (profile && profile.length > 0) {
+          // Recreate the cookie state
+          this.currentCookieState[domain] = this._createCookieHashMap(profile);
+        } else {
+          // No profile data found, but metadata exists - consider as unmodified
+          return false;
+        }
+      }
+      
+      // Quick count check - if counts differ, cookies must be modified
       if (metadata[domain].cookieCount !== currentCookies.length) {
         await this.markCookiesAsModified(domain);
         return true;

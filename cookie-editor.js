@@ -17,6 +17,9 @@ import { extractSharedDataFromUrl } from './interface/lib/sharing/cookieSharing.
   // Variables for badge pulsing effect
   let badgePulseInterval = null;
   let badgePulseState = false;
+  
+  // Variable for cookie change debouncing
+  let cookieChangeTimeout = null;
 
   browserDetector.getApi().runtime.onConnect.addListener(onConnect);
   browserDetector.getApi().runtime.onMessage.addListener(handleMessage);
@@ -489,18 +492,29 @@ import { extractSharedDataFromUrl } from './interface/lib/sharing/cookieSharing.
       return;
     }
 
-    for (const tabId in connections) {
-      if (tabId.indexOf('options-') === 0) {
-        continue;
-      }
-      const port = connections[tabId];
-      port.postMessage({
-        type: 'cookiesChanged',
-        params: {
-          changeInfo: changeInfo,
-        },
-      });
+    // Clear any existing timeout to debounce rapid changes
+    if (cookieChangeTimeout !== null) {
+      clearTimeout(cookieChangeTimeout);
     }
+    
+    // Set a timeout to delay sending the update
+    cookieChangeTimeout = setTimeout(function() {
+      cookieChangeTimeout = null;
+      
+      // Only send the message when the timeout fires
+      for (const tabId in connections) {
+        if (tabId.indexOf('options-') === 0) {
+          continue;
+        }
+        const port = connections[tabId];
+        port.postMessage({
+          type: 'cookiesChanged',
+          params: {
+            changeInfo: changeInfo,
+          },
+        });
+      }
+    }, 1500); // Add a 1.5 second debounce time
   }
 
   /**

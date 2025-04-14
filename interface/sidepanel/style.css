@@ -38,3 +38,76 @@ body {
     background-color: #202124;
   }
 }
+
+/* Copy Options Menu Styles */
+.cookie .header .btns {
+  display: flex; /* Align buttons horizontally */
+  align-items: center;
+}
+
+.copy-options-container {
+  position: relative; /* Needed for absolute positioning of the menu */
+  margin-right: 4px; /* Add some space between copy and delete buttons */
+}
+
+.copy-options-button {
+  background: none;
+  border: none;
+  padding: 4px; /* Adjust padding as needed */
+  cursor: pointer;
+  display: flex; /* Align icon nicely */
+  align-items: center;
+  justify-content: center;
+  color: var(--button-color);
+}
+
+.copy-options-button svg.icon {
+  width: 14px; /* Adjust size as needed */
+  height: 14px;
+}
+
+.copy-options-button:hover {
+  background-color: var(--button-hover-bg);
+}
+
+.copy-options-menu {
+  position: absolute;
+  top: 100%; /* Position below the button */
+  right: 0; /* Align to the right of the container */
+  background-color: var(--menu-surface-color);
+  border: 1px solid var(--menu-border);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  z-index: 100; /* Ensure it appears above other elements */
+  min-width: 150px; /* Set a minimum width */
+  padding: 5px 0;
+  border-radius: 3px;
+}
+
+.copy-options-menu button {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  text-align: left;
+  padding: 8px 12px;
+  cursor: pointer;
+  color: var(--text-color);
+  font-size: 13px;
+}
+
+.copy-options-menu button:hover {
+  background-color: var(--menu-item-hover-bg);
+}
+
+/* Optional: Style for success feedback */
+.copy-options-menu button.success-feedback {
+  background-color: #d4edda; /* Light green background */
+  color: #155724; /* Dark green text */
+  transition: background-color 0.2s ease-out;
+}
+
+/* Ensure expando content doesn't overlap menu */
+.cookie .expando {
+  position: relative; /* Needed for z-index stacking */
+  z-index: 1; /* Lower than the copy menu */
+}

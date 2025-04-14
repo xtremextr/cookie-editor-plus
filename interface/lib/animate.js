@@ -14,39 +14,28 @@ export class Animate {
     
     // Store original overflow settings of the container to restore later
     const cookieContainer = document.getElementById('cookie-container');
-    const originalOverflow = cookieContainer ? cookieContainer.style.overflow : '';
-
+    
+    // Don't block scrolling on the main container anymore
+    // Instead, only manage overflow on the specific element being animated
+    
     // Start with display flex but opacity 0 to allow height calculation without visual jump
     el.style.display = 'flex';
-    
-    // Prevent scrollbar flashing by temporarily disabling overflow on the main container
-    if (cookieContainer) {
-      cookieContainer.style.overflow = 'hidden';
-    }
 
     // Set up transitionend listener
-    el.addEventListener(
-      'transitionend',
-      function () {
-        if (callback) {
-          callback();
-        }
+    const onTransitionEnd = function() {
+      if (callback) {
+        callback();
+      }
 
-        if (self.isHidden(el)) {
-          el.style.display = 'none';
-        }
-        
-        // Restore original overflow after a small delay to avoid visual jumps
-        setTimeout(function() {
-          if (cookieContainer) {
-            cookieContainer.style.overflow = originalOverflow;
-          }
-        }, 50);
-      },
-      {
-        once: true,
-      },
-    );
+      if (self.isHidden(el)) {
+        el.style.display = 'none';
+      }
+      
+      // Remove event listener to prevent memory leaks
+      el.removeEventListener('transitionend', onTransitionEnd);
+    };
+    
+    el.addEventListener('transitionend', onTransitionEnd);
 
     if (el.getAttribute('data-max-height')) {
       // For previously calculated elements, we use the cached value
@@ -100,19 +89,55 @@ export class Animate {
         },
       );
     }
+    
+    // Don't block scrolling on the main container anymore
+    // Instead, only manage overflow on the specific element being animated
+    
+    // Check if advanced forms are being shown or hidden
+    const advancedForms = el.querySelectorAll('.advanced-form');
+    const hasVisibleAdvancedForms = Array.from(advancedForms).some(form => 
+      form.classList.contains('show') && form.style.display !== 'none'
+    );
+    
+    // For collapsing, transition should be quicker
+    const transitionDuration = hasVisibleAdvancedForms ? '0.25s' : '0.15s';
+    
+    // Calculate new height
     const elMaxHeight = this.getHeight(el, true) + 'px';
-    el.style.transition = 'max-height 0.25s ease-in-out';
+    el.style.transition = `max-height ${transitionDuration} ease-out`;
     el.style.overflowY = 'hidden';
-    // el.style.maxHeight = '0';
     el.setAttribute('data-max-height', elMaxHeight);
 
     const nextMaxHeight = elMaxHeight;
-    el.style.maxHeight = el.offsetHeight;
+    const currentHeight = el.offsetHeight + 'px';
+    el.style.maxHeight = currentHeight;
 
-    // we use setTimeout to modify maxHeight later than display (to we have the transition effect)
-    setTimeout(function () {
+    // After resizing is complete, handle overflow on the element
+    const onTransitionEnd = function() {
+      // Only for expanded forms, remove max-height constraint 
+      if (hasVisibleAdvancedForms) {
+        // Remove max-height constraint to prevent content cutoff
+        el.style.maxHeight = 'none';
+      }
+      
+      el.removeEventListener('transitionend', onTransitionEnd);
+    };
+    
+    el.addEventListener('transitionend', onTransitionEnd);
+    
+    // Use requestAnimationFrame for smoother animation
+    requestAnimationFrame(function () {
       el.style.maxHeight = nextMaxHeight;
-    }, 10);
+      
+      // Safety timeout in case the transition event doesn't fire
+      setTimeout(function() {
+        // Also remove maxHeight constraint after a safe period
+        // This ensures content is fully visible even if transition events fail
+        if (hasVisibleAdvancedForms) {
+          el.style.maxHeight = 'none';
+        }
+      }, hasVisibleAdvancedForms ? 300 : 200);
+    });
   }
 
   /**
@@ -213,19 +238,44 @@ export class Animate {
     container.innerHTML = '';
     container.appendChild(wrapper);
     
+    // Set a timeout to ensure callback is called even if transition events fail
+    let transitionCompleted = false;
+    const safetyTimeoutId = setTimeout(() => {
+      if (!transitionCompleted) {
+        console.log('[Animate.transitionPage] Safety timeout triggered, completing animation manually.');
+        // Clean up animation elements and move new page directly into container
+        container.innerHTML = '';
+        container.appendChild(newPage);
+        
+        // Call callback if provided
+        if (callback) callback();
+        transitionCompleted = true;
+      }
+    }, 500); // 500ms safety timeout (longer than the transition duration)
+    
     // Start the animation in the next frame to ensure proper rendering
     requestAnimationFrame(() => {
       oldContainer.style.opacity = '0';
       newContainer.style.opacity = '1';
       
       // Listen for the transition to finish
-      newContainer.addEventListener('transitionend', function() {
-        // Clean up animation elements and move new page directly into container
-        container.innerHTML = '';
-        container.appendChild(newPage);
-        
-        if (callback) callback();
-      }, { once: true });
+      newContainer.addEventListener('transitionend', function onTransitionEnd() {
+        if (!transitionCompleted) {
+          // Clean up animation elements and move new page directly into container
+          container.innerHTML = '';
+          container.appendChild(newPage);
+          
+          // Call callback if provided
+          if (callback) callback();
+          
+          // Mark as completed and clear the safety timeout
+          transitionCompleted = true;
+          clearTimeout(safetyTimeoutId);
+          
+          // Remove the event listener to prevent memory leaks
+          newContainer.removeEventListener('transitionend', onTransitionEnd);
+        }
+      });
     });
   }
 
@@ -241,11 +291,8 @@ export class Animate {
     clone.style.position = 'absolute';
     clone.style.height = 'auto';
     
-    // For better performance, avoid calculating the exact height 
-    // when possible by using cached values
-    if (el.hasAttribute('data-height-calculated')) {
-      return parseInt(el.getAttribute('data-height-calculated'));
-    }
+    // Remove caching to ensure fresh height calculation every time
+    // This is important for elements with dynamic content like the advanced form
     
     if (ignoreMaxHeight) {
       clone.style.maxHeight = 'none';
@@ -254,12 +301,26 @@ export class Animate {
     // Force new stacking context to prevent affecting other elements
     clone.style.zIndex = '-1';
     
+    // Ensure any nested advanced-form elements that are shown in the original 
+    // are also shown in the clone for proper height calculation
+    const originalAdvancedForms = el.querySelectorAll('.advanced-form.show');
+    const cloneAdvancedForms = clone.querySelectorAll('.advanced-form');
+    
+    // Apply the same show state to clone elements
+    if (originalAdvancedForms.length > 0 && cloneAdvancedForms.length > 0) {
+      originalAdvancedForms.forEach((form, index) => {
+        if (index < cloneAdvancedForms.length) {
+          cloneAdvancedForms[index].classList.add('show');
+          cloneAdvancedForms[index].style.display = 'block';
+          cloneAdvancedForms[index].style.height = 'auto';
+          cloneAdvancedForms[index].style.opacity = '1';
+        }
+      });
+    }
+    
     document.body.appendChild(clone);
     const height = clone.offsetHeight;
     document.body.removeChild(clone);
-    
-    // Cache the calculated height
-    el.setAttribute('data-height-calculated', height);
     
     return height;
   }

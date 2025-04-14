@@ -55,6 +55,12 @@ export class PermissionHandler {
       testPermission.origins = [
         `${protocol}//${hostname}/*`,
         `${protocol}//*.${rootDomain}/*`,
+        // Add HTTP versions as well to cover non-secure cookies
+        `http://${hostname}/*`,
+        `http://*.${rootDomain}/*`,
+        // Add HTTPS versions explicitly in case protocol was http
+        `https://${hostname}/*`,
+        `https://*.${rootDomain}/*`,
       ];
     } catch (err) {
       
@@ -86,6 +92,12 @@ export class PermissionHandler {
       permission.origins = [
         `${protocol}//${hostname}/*`,
         `${protocol}//*.${rootDomain}/*`,
+        // Add HTTP versions as well to cover non-secure cookies
+        `http://${hostname}/*`,
+        `http://*.${rootDomain}/*`,
+        // Add HTTPS versions explicitly in case protocol was http
+        `https://${hostname}/*`,
+        `https://*.${rootDomain}/*`,
       ];
     } catch (err) {
       

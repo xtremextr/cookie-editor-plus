@@ -1,9 +1,10 @@
 {
 	"manifest_version": 3,
-	"name": "Cookie-Editor Plus",
-	"version": "2.3.0",
+	"name": "Cookie Editor +",
+	"short_name": "Cookie Editor",
+	"version": "2.5.1",
 	"author": "Moustachauve",
-	"description": "Enhanced Cookie Editor with profile management, among new functions and optimizations. Create, edit and delete cookies easily!",
+	"description": "A powerful cookie editor that lets you create, edit, and delete cookies.",
 	"offline_enabled": true,
 	"minimum_chrome_version": "102",
 	"background": {
@@ -31,8 +32,7 @@
 		"cookies",
 		"tabs",
 		"storage",
-		"sidePanel",
-		"downloads"
+		"sidePanel"
 	],
 	"optional_host_permissions": [
 		"<all_urls>"

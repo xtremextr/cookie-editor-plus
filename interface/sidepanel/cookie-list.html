@@ -205,6 +205,23 @@
           <span class="header-name"></span>
           <span class="header-extra-info"></span>
           <div class="btns">
+            <div class="copy-options-container">
+              <button
+                class="copy-options-button"
+                data-tooltip-left="Copy options"
+                aria-label="Copy options"
+                tabindex="-1"
+                type="button"
+              >
+                <svg class="icon">
+                  <use href="../sprites/solid.svg#copy"></use>
+                </svg>
+              </button>
+              <div class="copy-options-menu" style="display: none;">
+                <button class="copy-value" type="button">Copy Value</button>
+                <button class="copy-cookie" type="button">Copy Whole Cookie</button>
+              </div>
+            </div>
             <button
               class="delete"
               data-tooltip-left="Delete"

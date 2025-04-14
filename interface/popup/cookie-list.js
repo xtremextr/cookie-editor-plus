@@ -13,6 +13,7 @@ import { PermissionHandler } from '../lib/permissionHandler.js';
 import { ProfileManager } from '../lib/profileManager.js';
 import { ThemeHandler } from '../lib/themeHandler.js';
 import { CookieHandlerPopup } from './cookieHandlerPopup.js';
+import { ResizeHandler } from '../lib/resizeHandler.js';
 
 // Cookie sharing imports
 import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, createShareableProfilesUrl } from '../lib/sharing/cookieSharing.js';
@@ -32,6 +33,10 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
   let allDomains = [];
   let selectedDomain = '';
   let hasRequestedPermission = false; // Permission request tracking
+  let showDeleteConfirmation = true; // Flag to control delete confirmation display
+  let showDeleteAllConfirmation = true; // Flag to control delete all confirmation display
+  let activeDeleteCookieName = null; // Store the name of cookie being deleted
+  let activeCopyMenu = null; // Store the active copy menu element
   
   // Performance optimization: Add cookie caching
   const cookieCache = {
@@ -39,7 +44,7 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     url: '',
     cookies: [],
     timestamp: 0,
-    maxAge: 1000, // Cache cookies for 1 second
+    maxAge: 5000, // Cache cookies for 5 seconds (increased from 1 second)
     isValid: function(url) {
       return this.url === url && 
              Date.now() - this.timestamp < this.maxAge;
@@ -97,17 +102,23 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     notificationElement = document.getElementById('notification');
     pageTitleContainer = document.getElementById('pageTitle');
     
+    // Add event listeners to the cookie container
+    addEventListeners();
+    
     // These might be null in side panel, check before use
     profileSelector = document.getElementById('profile-selector');
     domainSelector = document.getElementById('domain-selector');
     
-    // Check for pending shared cookies from URL first
-    await checkForPendingSharedCookies(); // Moved back here, run before UI init
-
     // Load options before proceeding
     await optionHandler.loadOptions();
     await themeHandler.updateTheme();
     await handleAd();
+    
+    // Initialize resize handler
+    if (!isSidePanel()) {
+      const resizeHandler = new ResizeHandler(storageHandler);
+      await resizeHandler.initialize(document.body, pageTitleContainer);
+    }
     
     // --- Popup-Specific Initializations --- 
     if (!isSidePanel()) {
@@ -193,6 +204,34 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
 
     await initWindow();
 
+    // Check for pending shared data AFTER main UI initialization is complete
+    await checkForPendingSharedCookies(); 
+    
+    /**
+     * Adds event listeners for elements inside the cookie list.
+     */
+    function addEventListeners() {
+      containerCookie.addEventListener('click', function (e) {
+        // Handle click on copy options button
+        if (e.target.closest('button.copy-options-button')) {
+          copyOptionsButton(e);
+          return;
+        }
+        
+        // Handle click on delete button
+        if (e.target.closest('button.delete')) {
+          deleteButton(e);
+          return;
+        }
+        
+        // Handle click on cookie header (expand/collapse)
+        if (e.target.closest('.header') && !e.target.closest('button')) {
+          expandCookie(e);
+          return;
+        }
+      });
+    }
+
     /**
      * Expands the HTML cookie element.
      * @param {element} e Element to expand.
@@ -217,8 +256,216 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       e.preventDefault();
       
       const listElement = e.target.closest('li');
-      removeCookie(listElement.dataset.name);
+      const cookieName = listElement.dataset.name;
+      
+      // Check if we should show the confirmation
+      if (showDeleteConfirmation) {
+        showDeleteConfirmationDialog(cookieName);
+      } else {
+        // Delete immediately if confirmations are disabled
+        removeCookie(cookieName);
+      }
+      
       return false;
+    }
+
+    /**
+     * Shows the delete confirmation dialog
+     * @param {string} cookieName Name of the cookie to delete
+     */
+    function showDeleteConfirmationDialog(cookieName) {
+      // Store the cookie name for use when confirmed
+      activeDeleteCookieName = cookieName;
+      
+      // Check if template exists
+      const templateEl = document.getElementById('tmp-confirm-delete');
+      if (!templateEl) {
+        console.error("Delete confirmation template not found in the DOM!");
+        sendNotification("Error showing delete confirmation", true);
+        // Fall back to immediate deletion
+        removeCookie(activeDeleteCookieName);
+        return;
+      }
+      
+      // Create the dialog from template
+      const template = document.importNode(
+        templateEl.content,
+        true
+      );
+      const dialog = template.querySelector('#confirm-delete-dialog');
+      document.body.appendChild(dialog);
+      
+      // Set up event listeners
+      const cancelButton = dialog.querySelector('#cancel-delete');
+      const confirmButton = dialog.querySelector('#confirm-delete');
+      const closeXButton = dialog.querySelector('#cancel-delete-x');
+      const dontShowAgainCheckbox = dialog.querySelector('#dont-show-again');
+      
+      cancelButton.addEventListener('click', () => {
+        closeDeleteConfirmationDialog();
+      });
+      
+      closeXButton.addEventListener('click', () => {
+        closeDeleteConfirmationDialog();
+      });
+      
+      confirmButton.addEventListener('click', () => {
+        // Update the setting if checkbox is checked
+        if (dontShowAgainCheckbox.checked) {
+          showDeleteConfirmation = false;
+          // Save this preference to storage
+          storageHandler.setLocal('showDeleteConfirmation', false);
+        }
+        
+        // Delete the cookie
+        removeCookie(activeDeleteCookieName);
+        
+        // Close the dialog
+        closeDeleteConfirmationDialog();
+      });
+      
+      // Close on ESC key
+      document.addEventListener('keydown', handleDialogEscapeKey);
+      
+      // Show the dialog with animation
+      setTimeout(() => {
+        dialog.classList.add('visible');
+      }, 10);
+    }
+    
+    /**
+     * Closes the delete confirmation dialog
+     */
+    function closeDeleteConfirmationDialog() {
+      const dialog = document.getElementById('confirm-delete-dialog');
+      if (dialog) {
+        // Remove event listener
+        document.removeEventListener('keydown', handleDialogEscapeKey);
+        
+        // Remove the dialog with animation
+        dialog.classList.remove('visible');
+        setTimeout(() => {
+          if (dialog.parentNode) {
+            dialog.parentNode.removeChild(dialog);
+          }
+        }, 300);
+      }
+    }
+    
+    /**
+     * Handles escape key press to close dialogs
+     * @param {KeyboardEvent} e Keyboard event
+     */
+    function handleDialogEscapeKey(e) {
+      if (e.key === 'Escape') {
+        // Check if each dialog exists before trying to close it
+        if (document.getElementById('confirm-delete-dialog')) {
+          closeDeleteConfirmationDialog();
+        }
+        
+        if (document.getElementById('confirm-delete-all-dialog')) {
+          closeDeleteAllConfirmationDialog();
+        }
+        
+        // Close any open copy menus
+        closeCopyOptionsMenu();
+      }
+    }
+    
+    /**
+     * Handles clicks on the copy options button
+     * @param {Event} e Click event
+     * @return {false} returns false to prevent click event propagation
+     */
+    function copyOptionsButton(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      // Close any open menu first
+      closeCopyOptionsMenu();
+      
+      const buttonElement = e.target.closest('button');
+      const listElement = buttonElement.closest('li');
+      const cookieName = listElement.dataset.name;
+      
+      // Get the cookie data
+      const cookieId = Object.keys(loadedCookies).find(id => 
+        loadedCookies[id].cookie.name === cookieName
+      );
+      
+      if (!cookieId || !loadedCookies[cookieId]) {
+        return false;
+      }
+      
+      const cookie = loadedCookies[cookieId].cookie;
+      
+      // Get the copy options menu from the button's parent container
+      const copyMenu = buttonElement.closest('.copy-options-container').querySelector('.copy-options-menu');
+      if (!copyMenu) {
+        return false;
+      }
+      
+      // Show the menu
+      copyMenu.style.display = 'block';
+      activeCopyMenu = copyMenu;
+      
+      // Add click handlers to the menu buttons
+      const copyWholeButton = copyMenu.querySelector('.copy-cookie');
+      const copyValueButton = copyMenu.querySelector('.copy-value');
+      
+      if (copyWholeButton) {
+        copyWholeButton.addEventListener('click', () => {
+          // Format the cookie as JSON and copy
+          const cookieJson = JSON.stringify(cookie, null, 2);
+          copyText(cookieJson);
+          sendNotification('Copied cookie to clipboard', false);
+          closeCopyOptionsMenu();
+        });
+      }
+      
+      if (copyValueButton) {
+        copyValueButton.addEventListener('click', () => {
+          // Copy just the value
+          copyText(cookie.value);
+          sendNotification('Copied cookie value to clipboard', false);
+          closeCopyOptionsMenu();
+        });
+      }
+      
+      // Handle clicks outside to close
+      document.addEventListener('click', handleClickOutside);
+      
+      return false;
+    }
+    
+    /**
+     * Closes the copy options menu
+     */
+    function closeCopyOptionsMenu() {
+      if (activeCopyMenu) {
+        // Remove event listener
+        document.removeEventListener('click', handleClickOutside);
+        
+        // Hide with animation then remove
+        activeCopyMenu.classList.remove('visible');
+        
+        setTimeout(() => {
+          if (activeCopyMenu.parentNode) {
+            activeCopyMenu.parentNode.removeChild(activeCopyMenu);
+          }
+          activeCopyMenu = null;
+        }, 200);
+      }
+    }
+    
+    /**
+     * Handles clicks outside the active menu
+     * @param {Event} e Click event
+     */
+    function handleClickOutside(e) {
+      if (activeCopyMenu && !activeCopyMenu.contains(e.target)) {
+        closeCopyOptionsMenu();
+      }
     }
 
     /**
@@ -267,7 +514,28 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       );
 
       if (form.classList.contains('create')) {
-        showCookiesForTab();
+        // Update the button bar UI
+        document.getElementById('button-bar-add').classList.remove('active');
+        document.getElementById('button-bar-default').classList.add('active');
+        
+        // Get the stored domain from the form if available
+        const formStoredDomain = form.dataset && form.dataset.domain;
+        
+        // Use stored domain if available, fallback to global selectedDomain
+        const domainToUse = formStoredDomain || selectedDomain;
+        
+        // Use the domain to determine which view to refresh
+        if (domainToUse) {
+          // Ensure the domain selector is synchronized
+          if (domainSelector && domainToUse !== domainSelector.value) {
+            domainSelector.value = domainToUse;
+            selectedDomain = domainToUse;
+          }
+          
+          showCookiesForSelectedDomain(true);
+        } else {
+          showCookiesForTab();
+        }
       }
 
       return false;
@@ -374,6 +642,15 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       }
       if (secure !== undefined) {
         cookie.secure = secure;
+      } else if (!cookie) { // Only set default for new cookies
+        // Default 'secure' based on the *target* URL protocol
+        const targetUrl = getCurrentTabUrl(); // This will now correctly use https for selected domains
+        try {
+          const urlObj = new URL(targetUrl);
+          cookie.secure = urlObj.protocol === 'https:';
+        } catch (e) {
+          cookie.secure = false; // Default to false if URL parsing fails
+        }
       }
       if (httpOnly !== undefined) {
         cookie.httpOnly = httpOnly;
@@ -436,47 +713,13 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       }
     }
 
-    if (containerCookie) {
-      containerCookie.addEventListener('click', (e) => {
-        let target = e.target;
-        if (target.nodeName === 'path') {
-          target = target.parentNode;
-        }
-        if (target.nodeName === 'svg') {
-          target = target.parentNode;
-        }
-
-        if (
-          target.classList.contains('header') ||
-          target.classList.contains('header-name') ||
-          target.classList.contains('header-extra-info')
-        ) {
-          return expandCookie(e);
-        }
-        if (target.classList.contains('delete')) {
-          return deleteButton(e);
-        }
-        if (target.classList.contains('save')) {
-          return saveCookieForm(e.target.closest('li').querySelector('form'));
-        }
-      });
-      document.addEventListener('keydown', (e) => {
-        if (e.code === 'Space' || e.code === 'Enter') {
-          const target = e.target;
-          if (target.classList.contains('header')) {
-            e.preventDefault();
-            return expandCookie(e);
-          }
-        }
-      });
-    }
-
     document.getElementById('create-cookie').addEventListener('click', () => {
-      if (disableButtons) {
+      // Check both flags to prevent running during ANY transition
+      if (disableButtons || isAnimating) { 
         return;
       }
 
-      setPageTitle('Cookie-Editor - Create');
+      // REMOVED: isAnimating = false; - This was potentially causing issues
       
       // Disable interaction during animation
       disableButtons = true;
@@ -484,9 +727,17 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       // Create the form outside the animation
       const newForm = createHtmlFormCookie();
       
+      // Store the current selected domain to restore it later
+      const currentSelectedDomain = selectedDomain;
+      
       // Immediately modify UI state to prevent flickering
       document.getElementById('button-bar-default').classList.remove('active');
       document.getElementById('button-bar-add').classList.add('active');
+      
+      // Store domain data for form submission
+      if (newForm.dataset) {
+        newForm.dataset.domain = currentSelectedDomain;
+      }
       
       // First pause any active CSS transitions
       document.body.classList.add('notransition');
@@ -529,44 +780,139 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
         if (buttonIcon.getAttribute('href') === '../sprites/solid.svg#check') {
           return;
         }
+        
         if (loadedCookies && Object.keys(loadedCookies).length) {
-          // Create an array of promises for cookie removal
-          const removalPromises = [];
-          for (const cookieId in loadedCookies) {
-            if (Object.prototype.hasOwnProperty.call(loadedCookies, cookieId)) {
-              const cookieName = loadedCookies[cookieId].cookie.name;
-              removalPromises.push(
-                new Promise((resolve) => {
-                  removeCookie(cookieName, null, () => {
-                    resolve();
-                  });
-                })
-              );
-            }
-          }
-          
-          // Wait for all cookies to be removed
-          await Promise.all(removalPromises);
-          
-          // Change the button icon
-          buttonIcon.setAttribute('href', '../sprites/solid.svg#check');
-          
-          // Refresh the cookie list
-          if (selectedDomain) {
-            await showCookiesForSelectedDomain();
+          // Check if we should show the confirmation dialog
+          if (showDeleteAllConfirmation) {
+            showDeleteAllConfirmationDialog();
           } else {
-            await showCookiesForTab();
+            // Delete immediately if confirmation is disabled
+            await deleteAllCookiesInCurrentView();
           }
-          
-          // Show notification
-        sendNotification('All cookies were deleted', false);
-          
-          // Reset the button icon after a delay
-        setTimeout(() => {
-          buttonIcon.setAttribute('href', '../sprites/solid.svg#trash');
-        }, 1500);
         }
       });
+      
+    /**
+     * Shows the confirmation dialog for deleting all cookies
+     */
+    function showDeleteAllConfirmationDialog() {
+      // Create the dialog from template
+      const template = document.importNode(
+        document.getElementById('tmp-confirm-delete-all').content,
+        true
+      );
+      const dialog = template.querySelector('#confirm-delete-all-dialog');
+      document.body.appendChild(dialog);
+      
+      // Set up event listeners
+      const cancelButton = dialog.querySelector('#cancel-delete-all');
+      const confirmButton = dialog.querySelector('#confirm-delete-all');
+      const closeXButton = dialog.querySelector('#cancel-delete-all-x');
+      const dontShowAgainCheckbox = dialog.querySelector('#dont-show-again-all');
+      
+      cancelButton.addEventListener('click', () => {
+        closeDeleteAllConfirmationDialog();
+      });
+      
+      closeXButton.addEventListener('click', () => {
+        closeDeleteAllConfirmationDialog();
+      });
+      
+      confirmButton.addEventListener('click', async () => {
+        // Update the setting if checkbox is checked
+        if (dontShowAgainCheckbox.checked) {
+          showDeleteAllConfirmation = false;
+          // Save this preference to storage
+          storageHandler.setLocal('showDeleteAllConfirmation', false);
+        }
+        
+        // Delete all cookies
+        await deleteAllCookiesInCurrentView();
+        
+        // Close the dialog
+        closeDeleteAllConfirmationDialog();
+      });
+      
+      // Close on ESC key (already handled by handleDialogEscapeKey)
+      document.addEventListener('keydown', handleDialogEscapeKey);
+      
+      // Show the dialog with animation
+      setTimeout(() => {
+        dialog.classList.add('visible');
+      }, 10);
+    }
+    
+    /**
+     * Closes the delete all confirmation dialog
+     */
+    function closeDeleteAllConfirmationDialog() {
+      const dialog = document.getElementById('confirm-delete-all-dialog');
+      if (dialog) {
+        // Remove event listener
+        document.removeEventListener('keydown', handleDialogEscapeKey);
+        
+        // Remove the dialog with animation
+        dialog.classList.remove('visible');
+        setTimeout(() => {
+          if (dialog.parentNode) {
+            dialog.parentNode.removeChild(dialog);
+          }
+        }, 300);
+      }
+    }
+    
+    /**
+     * Deletes all cookies currently displayed in the view
+     */
+    async function deleteAllCookiesInCurrentView() {
+      const buttonIcon = document
+        .getElementById('delete-all-cookies')
+        .querySelector('use');
+        
+      // Create an array of promises for cookie removal
+      const removalPromises = [];
+      for (const cookieId in loadedCookies) {
+        if (Object.prototype.hasOwnProperty.call(loadedCookies, cookieId)) {
+          const cookieName = loadedCookies[cookieId].cookie.name;
+          removalPromises.push(
+            new Promise((resolve) => {
+              removeCookie(cookieName, null, () => {
+                resolve();
+              });
+            })
+          );
+        }
+      }
+      
+      // Wait for all cookies to be removed
+      await Promise.all(removalPromises);
+      
+      // Reset loadedCookies to empty
+      loadedCookies = {};
+      
+      // Explicitly check if cookies have been modified after bulk deletion
+      // This ensures profile state is updated when deleting all cookies
+      console.log("[delete-all-cookies] All cookies deleted, updating profile state");
+      await checkIfCookiesModified();
+      
+      // Change the button icon
+      buttonIcon.setAttribute('href', '../sprites/solid.svg#check');
+      
+      // Refresh the cookie list
+      if (selectedDomain) {
+        await showCookiesForSelectedDomain();
+      } else {
+        await showCookiesForTab();
+      }
+      
+      // Show notification
+      sendNotification('All cookies were deleted', false);
+      
+      // Reset the button icon after a delay
+      setTimeout(() => {
+        buttonIcon.setAttribute('href', '../sprites/solid.svg#trash');
+      }, 1500);
+    }
 
     document.getElementById('export-cookies').addEventListener('click', () => {
       if (disableButtons) {
@@ -577,11 +923,12 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     });
 
     document.getElementById('import-cookies').addEventListener('click', () => {
-      if (disableButtons) {
+      // Check both flags to prevent running during ANY transition
+      if (disableButtons || isAnimating) { 
         return;
       }
 
-      setPageTitle('Cookie-Editor - Import');
+      // REMOVED: isAnimating = false; - This was potentially causing issues
       
       // Disable interaction during animation
       disableButtons = true;
@@ -589,9 +936,17 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       // Create the form outside the animation
       const newForm = createHtmlFormImport();
       
+      // Store the current selected domain to restore it later
+      const currentSelectedDomain = selectedDomain;
+      
       // Immediately modify UI state to prevent flickering
       document.getElementById('button-bar-default').classList.remove('active');
       document.getElementById('button-bar-import').classList.add('active');
+      
+      // Store domain data for form submission
+      if (newForm.dataset) {
+        newForm.dataset.domain = currentSelectedDomain;
+      }
       
       // First pause any active CSS transitions
       document.body.classList.add('notransition');
@@ -633,12 +988,14 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       // Disable interaction during animation
       disableButtons = true;
       
+      // Get the form to retrieve domain information
+      const form = containerCookie.querySelector('form');
+      // Get the stored domain from the form if available
+      const formStoredDomain = form && form.dataset && form.dataset.domain;
+      
       // Update button bar state
       document.getElementById('button-bar-add').classList.remove('active');
       document.getElementById('button-bar-default').classList.add('active');
-      
-      // Set page title back to default
-      setPageTitle('Cookie-Editor');
       
       // First pause any active CSS transitions
       document.body.classList.add('notransition');
@@ -651,40 +1008,112 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
         // Re-enable transitions just before animation starts
         document.body.classList.remove('notransition');
       
-      // Get all cookies to display in main view
-      cookieHandler.getAllCookies(function (cookies) {
-        cookies = cookies.sort(sortCookiesByName);
-        
-        loadedCookies = {};
-        
-        if (cookies.length === 0) {
-          showNoCookies().then(() => {
-            disableButtons = false;
+        // Use the stored domain if available
+        if (formStoredDomain) {
+          // Ensure the domain selector is synchronized
+          if (domainSelector && formStoredDomain !== domainSelector.value) {
+            domainSelector.value = formStoredDomain;
+            selectedDomain = formStoredDomain;
+          }
+          
+          // Get cookies for the selected domain
+          getCookiesForDomainWrapper(formStoredDomain, function(cookies) {
+            cookies = cookies.sort(sortCookiesByName);
+            
+            loadedCookies = {};
+            
+            if (cookies.length === 0) {
+              // Create the empty cookies message
+              const html = document
+                .importNode(document.getElementById('tmp-empty').content, true)
+                .querySelector('p');
+              
+              html.textContent = `No cookies found for domain: ${formStoredDomain}`;
+              
+              // Transition directly to the empty state
+              Animate.transitionPage(
+                containerCookie,
+                containerCookie.firstChild,
+                html,
+                'right',
+                () => {
+                  disableButtons = false;
+                },
+                optionHandler.getAnimationsEnabled()
+              );
+              return;
+            }
+            
+            // Create the cookie list
+            cookiesListHtml = document.createElement('ul');
+            cookiesListHtml.appendChild(generateSearchBar());
+            cookies.forEach(function (cookie) {
+              const id = Cookie.hashCode(cookie);
+              loadedCookies[id] = new Cookie(id, cookie, optionHandler);
+              cookiesListHtml.appendChild(loadedCookies[id].html);
+            });
+            
+            // Direct animation from the add form to the cookie list
+            Animate.transitionPage(
+              containerCookie,
+              containerCookie.firstChild,
+              cookiesListHtml,
+              'right',
+              () => {
+                disableButtons = false;
+              },
+              optionHandler.getAnimationsEnabled()
+            );
           });
-          return;
+        } else {
+          // Default behavior - get all cookies
+          cookieHandler.getAllCookies(function (cookies) {
+            cookies = cookies.sort(sortCookiesByName);
+            
+            loadedCookies = {};
+            
+            if (cookies.length === 0) {
+              // Create the empty cookies message
+              const html = document
+                .importNode(document.getElementById('tmp-empty').content, true)
+                .querySelector('p');
+              
+              // Transition directly to the empty state
+              Animate.transitionPage(
+                containerCookie,
+                containerCookie.firstChild,
+                html,
+                'right',
+                () => {
+                  disableButtons = false;
+                },
+                optionHandler.getAnimationsEnabled()
+              );
+              return;
+            }
+            
+            // Create the cookie list
+            cookiesListHtml = document.createElement('ul');
+            cookiesListHtml.appendChild(generateSearchBar());
+            cookies.forEach(function (cookie) {
+              const id = Cookie.hashCode(cookie);
+              loadedCookies[id] = new Cookie(id, cookie, optionHandler);
+              cookiesListHtml.appendChild(loadedCookies[id].html);
+            });
+            
+            // Direct animation from the add form to the cookie list
+            Animate.transitionPage(
+              containerCookie,
+              containerCookie.firstChild,
+              cookiesListHtml,
+              'right',
+              () => {
+                disableButtons = false;
+              },
+              optionHandler.getAnimationsEnabled()
+            );
+          });
         }
-        
-        // Create the cookie list
-        cookiesListHtml = document.createElement('ul');
-        cookiesListHtml.appendChild(generateSearchBar());
-        cookies.forEach(function (cookie) {
-          const id = Cookie.hashCode(cookie);
-          loadedCookies[id] = new Cookie(id, cookie, optionHandler);
-          cookiesListHtml.appendChild(loadedCookies[id].html);
-        });
-        
-        // Direct animation from the add form to the cookie list
-        Animate.transitionPage(
-          containerCookie,
-          containerCookie.firstChild,
-          cookiesListHtml,
-          'right',
-          () => {
-            disableButtons = false;
-          },
-          optionHandler.getAnimationsEnabled()
-        );
-      });
       }, 30);
     });
     
@@ -698,12 +1127,14 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
         // Disable interaction during animation
         disableButtons = true;
         
+        // Get the form to retrieve domain information
+        const form = containerCookie.querySelector('form');
+        // Get the stored domain from the form if available
+        const formStoredDomain = form && form.dataset && form.dataset.domain;
+        
         // Update button bar state
         document.getElementById('button-bar-import').classList.remove('active');
         document.getElementById('button-bar-default').classList.add('active');
-        
-        // Set page title back to default
-        setPageTitle('Cookie-Editor');
         
         // First pause any active CSS transitions
         document.body.classList.add('notransition');
@@ -716,53 +1147,142 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
           // Re-enable transitions just before animation starts
           document.body.classList.remove('notransition');
         
-        // Get all cookies to display in main view
-        cookieHandler.getAllCookies(function (cookies) {
-          cookies = cookies.sort(sortCookiesByName);
-          
-          loadedCookies = {};
-          
-          if (cookies.length === 0) {
-            showNoCookies().then(() => {
-              disableButtons = false;
+          // Use the stored domain if available
+          if (formStoredDomain) {
+            // Ensure the domain selector is synchronized
+            if (domainSelector && formStoredDomain !== domainSelector.value) {
+              domainSelector.value = formStoredDomain;
+              selectedDomain = formStoredDomain;
+            }
+            
+            // Get cookies for the selected domain
+            getCookiesForDomainWrapper(formStoredDomain, function(cookies) {
+              cookies = cookies.sort(sortCookiesByName);
+              
+              loadedCookies = {};
+              
+              if (cookies.length === 0) {
+                // Create the empty cookies message
+                const html = document
+                  .importNode(document.getElementById('tmp-empty').content, true)
+                  .querySelector('p');
+                
+                html.textContent = `No cookies found for domain: ${formStoredDomain}`;
+                
+                // Transition directly to the empty state  
+                Animate.transitionPage(
+                  containerCookie,
+                  containerCookie.firstChild,
+                  html,
+                  'right',
+                  () => {
+                    disableButtons = false;
+                  },
+                  optionHandler.getAnimationsEnabled()
+                );
+                return;
+              }
+              
+              // Create the cookie list
+              cookiesListHtml = document.createElement('ul');
+              cookiesListHtml.appendChild(generateSearchBar());
+              cookies.forEach(function (cookie) {
+                const id = Cookie.hashCode(cookie);
+                loadedCookies[id] = new Cookie(id, cookie, optionHandler);
+                cookiesListHtml.appendChild(loadedCookies[id].html);
+              });
+              
+              // Direct animation from the import form to the cookie list
+              Animate.transitionPage(
+                containerCookie,
+                containerCookie.firstChild,
+                cookiesListHtml,
+                'right',
+                () => {
+                  disableButtons = false;
+                },
+                optionHandler.getAnimationsEnabled()
+              );
             });
-            return;
+          } else {
+            // Default behavior - get all cookies
+            cookieHandler.getAllCookies(function (cookies) {
+              cookies = cookies.sort(sortCookiesByName);
+              
+              loadedCookies = {};
+              
+              if (cookies.length === 0) {
+                // Create the empty cookies message
+                const html = document
+                  .importNode(document.getElementById('tmp-empty').content, true)
+                  .querySelector('p');
+                
+                // Transition directly to the empty state  
+                Animate.transitionPage(
+                  containerCookie,
+                  containerCookie.firstChild,
+                  html,
+                  'right',
+                  () => {
+                    disableButtons = false;
+                  },
+                  optionHandler.getAnimationsEnabled()
+                );
+                return;
+              }
+              
+              // Create the cookie list
+              cookiesListHtml = document.createElement('ul');
+              cookiesListHtml.appendChild(generateSearchBar());
+              cookies.forEach(function (cookie) {
+                const id = Cookie.hashCode(cookie);
+                loadedCookies[id] = new Cookie(id, cookie, optionHandler);
+                cookiesListHtml.appendChild(loadedCookies[id].html);
+              });
+              
+              // Direct animation from the import form to the cookie list
+              Animate.transitionPage(
+                containerCookie,
+                containerCookie.firstChild,
+                cookiesListHtml,
+                'right',
+                () => {
+                  disableButtons = false;
+                },
+                optionHandler.getAnimationsEnabled()
+              );
+            });
           }
-          
-          // Create the cookie list
-          cookiesListHtml = document.createElement('ul');
-          cookiesListHtml.appendChild(generateSearchBar());
-          cookies.forEach(function (cookie) {
-            const id = Cookie.hashCode(cookie);
-            loadedCookies[id] = new Cookie(id, cookie, optionHandler);
-            cookiesListHtml.appendChild(loadedCookies[id].html);
-          });
-          
-          // Direct animation from the import form to the cookie list
-          Animate.transitionPage(
-            containerCookie,
-            containerCookie.firstChild,
-            cookiesListHtml,
-            'right',
-            () => {
-              disableButtons = false;
-            },
-            optionHandler.getAnimationsEnabled()
-          );
-        });
         }, 30);
       });
 
     containerCookie.addEventListener('submit', (e) => {
       e.preventDefault();
-      saveCookieForm(e.target);
+      
+      // Check if this is the create form
+      const form = e.target;
+      if (form.classList.contains('create')) {
+        // Update the button bar UI
+        document.getElementById('button-bar-add').classList.remove('active');
+        document.getElementById('button-bar-default').classList.add('active');
+      }
+      
+      saveCookieForm(form);
       return false;
     });
 
     document
       .getElementById('save-create-cookie')
       .addEventListener('click', () => {
-        saveCookieForm(document.querySelector('form'));
+        // Get the form to retrieve domain data
+        const form = document.querySelector('form.create');
+        
+        // First update the button bars
+        document.getElementById('button-bar-add').classList.remove('active');
+        document.getElementById('button-bar-default').classList.add('active');
+        
+        // Then save the cookie
+        saveCookieForm(form);
       });
 
     document
@@ -778,9 +1298,30 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
         }
 
         const json = document.querySelector('textarea').value;
-        if (!json) {
+        // ADDED: Check if import field is empty or whitespace
+        if (!json || !json.trim()) {
+          sendNotification('Import field is empty.', true);
+          // Reset button icon if needed (though it shouldn't have changed)
+          if (buttonIcon.getAttribute('href') !== '../sprites/solid.svg#file-import') {
+              buttonIcon.setAttribute('href', '../sprites/solid.svg#file-import');
+          }
           return;
         }
+        
+        // Get the form to retrieve the stored domain
+        const form = document.querySelector('form.import');
+        const formStoredDomain = form && form.dataset && form.dataset.domain;
+        
+        // Use stored domain if available, fallback to current selected domain
+        const domainToUse = formStoredDomain || selectedDomain;
+        
+        // Ensure the domain selector is synchronized
+        if (domainSelector && domainToUse && domainToUse !== domainSelector.value) {
+          domainSelector.value = domainToUse;
+          selectedDomain = domainToUse;
+          currentDomain = domainToUse;
+        }
+        
         let cookies;
         try {
           cookies = JsonFormat.parse(json);
@@ -793,58 +1334,71 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
             try {
               cookies = NetscapeFormat.parse(json);
             } catch (error) {
-              
-              sendNotification('The input is not in a valid format.', true);
-              buttonIcon.setAttribute('href', '../sprites/solid.svg#times');
-              setTimeout(() => {
-                buttonIcon.setAttribute(
-                  'href',
-                  '../sprites/solid.svg#file-import',
-                );
-              }, 1500);
+              console.error('Import error:', error);
+              // IMPROVED: Give a more specific error message mentioning formats
+              sendNotification('Failed to parse import text. Use JSON, Netscape, or HeaderString format.', true);
+              // Reset button icon
+              buttonIcon.setAttribute('href', '../sprites/solid.svg#file-import');
               return;
             }
           }
         }
-
-        if (!isArray(cookies) || cookies.length === 0) {
-          
-          sendNotification('No cookies were imported. Verify your input.', true);
-          buttonIcon.setAttribute('href', '../sprites/solid.svg#times');
-          setTimeout(() => {
-            buttonIcon.setAttribute('href', '../sprites/solid.svg#file-import');
-          }, 1500);
-          return;
-        }
-
-        for (const cookie of cookies) {
+        
+        buttonIcon.setAttribute('href', '../sprites/solid.svg#check');
+        
+        // Get URL to use for cookie import
+        const urlToUse = domainToUse ? `https://${domainToUse}/` : getCurrentTabUrl();
+        
+        let cookiesImported = 0;
+        let cookiesTotal = cookies.length;
+        let errorText = '';
+        
+        const updateProgress = () => {
+          cookiesImported++;
+          if (cookiesImported >= cookiesTotal) {
+            // Update button bar UI to back to main view
+            document.getElementById('button-bar-import').classList.remove('active');
+            document.getElementById('button-bar-default').classList.add('active');
+            
+            // Handle any errors
+            if (errorText) {
+              sendNotification(errorText, true);
+            } else {
+              sendNotification(`${cookiesTotal} cookie${cookiesTotal !== 1 ? 's' : ''} imported successfully.`, false);
+            }
+            
+            // Reset button icon after a delay
+            setTimeout(() => {
+              buttonIcon.setAttribute('href', '../sprites/solid.svg#file-import');
+            }, 1500);
+            
+            // Update view with the new cookies
+            if (domainToUse) {
+              showCookiesForSelectedDomain(true);
+            } else {
+              showCookiesForTab(true);
+            }
+          }
+        };
+        
+        cookies.forEach((cookie) => {
           // Make sure we are using the right store ID. This is in case we are
           // importing from a basic store ID and the current user is using
           // custom containers
           cookie.storeId = cookieHandler.currentTab.cookieStoreId;
-
+          
           if (cookie.sameSite && cookie.sameSite === 'unspecified') {
             cookie.sameSite = null;
           }
-
-          try {
-            cookieHandler.saveCookie(
-              cookie,
-              getCurrentTabUrl(),
-              function (error, cookie) {
-                if (error) {
-                  sendNotification(error, true);
-                }
-              },
-            );
-          } catch (error) {
-            
-            sendNotification(error, true);
-          }
-        }
-
-        sendNotification(`Cookies were imported`, false);
-        showCookiesForTab();
+          
+          cookieHandler.saveCookie(cookie, urlToUse, (error, cookie) => {
+            if (error) {
+              console.error('Error importing cookie:', error);
+              errorText = 'Error importing one or more cookies';
+            }
+            updateProgress();
+          });
+        });
       });
 
     const mainMenuContent = document.querySelector('#main-menu-content');
@@ -960,11 +1514,6 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       return;
     }
 
-    setPageTitle('Cookie-Editor');
-    document.getElementById('button-bar-add').classList.remove('active');
-    document.getElementById('button-bar-import').classList.remove('active');
-    document.getElementById('button-bar-default').classList.add('active');
-    
     // Get the current tab URL's domain
     const currentUrl = cookieHandler.currentTab.url;
     const domain = getDomainFromUrl(currentUrl);
@@ -976,9 +1525,15 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     }
     
     // Update the "Current tab domain" option in the domain selector only if it exists
-    // Remove isSidePanel check, update if selector exists
     if (domain && domainSelector && domainSelector.options.length > 0) {
       domainSelector.options[0].textContent = `Current tab domain (${domain})`;
+    }
+    
+    // Clear selectedDomain when showing cookies for the current tab
+    // This ensures we don't have a stale selection
+    if (domainSelector) {
+      selectedDomain = '';
+      domainSelector.value = '';
     }
     
     // Set subtitle to the current domain
@@ -1023,14 +1578,8 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     return new Promise((resolve) => {
       console.log(`[showCookiesForTab] Getting cookies for URL: ${currentUrl}`);
       
-      // PERFORMANCE OPTIMIZATION: Use cached cookies if available
-      // MODIFIED: Skip cache when coming from domain selector
-      const cameFromDomainSelector = selectedDomain === '';
-      if (!cameFromDomainSelector && cookieCache.isValid(currentUrl)) {
-        console.log(`[showCookiesForTab] Using cached cookies. Count: ${cookieCache.cookies.length}`);
-        renderCookies(cookieCache.cookies, resolve);
-        return;
-      }
+      // Always clear cache when explicitly showing cookies for tab to prevent stale data
+      cookieCache.clear(); // <-- Restore cache clearing here
       
       // Get all cookies for the current tab
       cookieHandler.getAllCookies(function (cookies) {
@@ -1052,6 +1601,11 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     
     // Reset loaded cookies tracking
     loadedCookies = {};
+    
+    // Make sure the correct button bar is displayed
+    document.getElementById('button-bar-add').classList.remove('active');
+    document.getElementById('button-bar-import').classList.remove('active');
+    document.getElementById('button-bar-default').classList.add('active');
     
     // Handle case with no cookies
     if (cookies.length === 0) {
@@ -1319,7 +1873,8 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     // Update UI state
     document.getElementById('button-bar-add').classList.remove('active');
     document.getElementById('button-bar-import').classList.remove('active');
-    document.getElementById('button-bar-default').classList.remove('active');
+    // KEEP THE DEFAULT BUTTON BAR ACTIVE
+    // document.getElementById('button-bar-default').classList.remove('active');
     
     // Special handling for Firefox
     if (
@@ -1375,12 +1930,24 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
         .getElementById('request-permission')
         .addEventListener('click', async (event) => {
           hasRequestedPermission = true;
-          const isPermissionGranted = await permissionHandler.requestPermission(
-            cookieHandler.currentTab.url,
-          );
           
-          if (isPermissionGranted) {
-            showCookiesForTab();
+          // Check if we can request permissions for this URL
+          if (!permissionHandler.canHavePermissions(cookieHandler.currentTab.url)) {
+            showPermissionImpossible();
+            return;
+          }
+          
+          try {
+            const isPermissionGranted = await permissionHandler.requestPermission(
+              cookieHandler.currentTab.url,
+            );
+            
+            if (isPermissionGranted) {
+              showCookiesForTab();
+            }
+          } catch (error) {
+            console.error('Permission request error:', error);
+            showPermissionImpossible();
           }
         });
       
@@ -1389,11 +1956,17 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
         .getElementById('request-permission-all')
         .addEventListener('click', async (event) => {
           hasRequestedPermission = true;
-          const isPermissionGranted =
-            await permissionHandler.requestPermission('<all_urls>');
           
-          if (isPermissionGranted) {
-            showCookiesForTab();
+          try {
+            const isPermissionGranted =
+              await permissionHandler.requestPermission('<all_urls>');
+            
+            if (isPermissionGranted) {
+              showCookiesForTab();
+            }
+          } catch (error) {
+            console.error('Permission request error:', error);
+            showPermissionImpossible();
           }
         });
     }
@@ -1424,7 +1997,8 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     // Update UI state
     document.getElementById('button-bar-add').classList.remove('active');
     document.getElementById('button-bar-import').classList.remove('active');
-    document.getElementById('button-bar-default').classList.remove('active');
+    // KEEP THE DEFAULT BUTTON BAR ACTIVE
+    // document.getElementById('button-bar-default').classList.remove('active');
     
     // If we already have the permission-impossible message, do nothing
     if (containerCookie.firstChild && containerCookie.firstChild.id === 'permission-impossible') {
@@ -1721,7 +2295,10 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     });
     
     // Check if cookies have been modified from loaded profile
-    checkIfCookiesModified();
+    // Use a small timeout to ensure this runs after cookie is fully removed
+    setTimeout(() => {
+      checkIfCookiesModified();
+    }, 50);
   }
 
   /**
@@ -1729,20 +2306,27 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
    */
   function onCookiesChanged() {
     // PERFORMANCE OPTIMIZATION: Clear the cache when cookies change
-    cookieCache.clear();
+    cookieCache.clear(); // <-- Restore cache clearing here
     
     if (cookieChangeTimeout !== null) {
       clearTimeout(cookieChangeTimeout);
     }
     
+    // Don't refresh if any cookie expandos are currently open
+    const activeExpandos = document.querySelectorAll('.header.active');
+    if (activeExpandos.length > 0) {
+      console.log('[onCookiesChanged] Skipping refresh because cookies are expanded:', activeExpandos.length);
+      return;
+    }
+    
     cookieChangeTimeout = setTimeout(function () {
       cookieChangeTimeout = null;
       if (selectedDomain) {
-        showCookiesForSelectedDomain();
+        showCookiesForSelectedDomain(true);
       } else {
         showCookiesForTab();
       }
-    }, 500);
+    }, 2000); // Increased from 500ms to 2000ms to reduce refresh frequency
   }
 
   /**
@@ -1976,15 +2560,7 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     const menuContent = document.getElementById('main-menu-content');
     
     // Check if buttons already exist to avoid duplicates
-    if (!document.getElementById('export-all-profiles')) {
-      const exportAllProfilesBtn = document.createElement('button');
-      exportAllProfilesBtn.className = 'menu-item';
-      exportAllProfilesBtn.id = 'export-all-profiles';
-      exportAllProfilesBtn.innerHTML = 'Export All Profiles <svg class="icon"><use href="../sprites/solid.svg#file-export"></use></svg>';
-      exportAllProfilesBtn.addEventListener('click', exportAllProfiles);
-      menuContent.appendChild(exportAllProfilesBtn);
-    }
-    
+    // Add Import Profiles button first
     if (!document.getElementById('import-all-profiles')) {
       const importAllProfilesBtn = document.createElement('button');
       importAllProfilesBtn.className = 'menu-item';
@@ -1993,6 +2569,16 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       importAllProfilesBtn.addEventListener('click', importAllProfiles);
       menuContent.appendChild(importAllProfilesBtn);
     }
+    
+    // Then add Export All Profiles button
+    if (!document.getElementById('export-all-profiles')) {
+      const exportAllProfilesBtn = document.createElement('button');
+      exportAllProfilesBtn.className = 'menu-item';
+      exportAllProfilesBtn.id = 'export-all-profiles';
+      exportAllProfilesBtn.innerHTML = 'Export All Profiles <svg class="icon"><use href="../sprites/solid.svg#file-export"></use></svg>';
+      exportAllProfilesBtn.addEventListener('click', exportAllProfiles);
+      menuContent.appendChild(exportAllProfilesBtn);
+    }
   }
 
   /**
@@ -2000,15 +2586,10 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
    * @return {string} The URL of the current tab or selected domain, otherwise empty string.
    */
   function getCurrentTabUrl() {
-    // If a domain is selected in the dropdown, construct a URL for it
+    // If a domain is selected in the dropdown, construct an HTTPS URL for it
     if (selectedDomain) {
-      // Try to infer protocol from current tab if available
-      if (cookieHandler.currentTab && cookieHandler.currentTab.url) {
-        const protocol = cookieHandler.currentTab.url.startsWith('https:') ? 'https:' : 'http:';
-        return `${protocol}//${selectedDomain}`;
-      }
-      // Default to https if we can't determine
-      return `https://${selectedDomain}`;
+      // Always default to https for selected domains
+      return `https://${selectedDomain}/`; // Use template literal for clarity
     }
     
     // Otherwise use the current tab's URL
@@ -2111,7 +2692,7 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
 
     notificationTimeout = setTimeout(() => {
       hideNotification();
-    }, 2500);
+    }, 1500);
   }
 
   /**
@@ -2134,19 +2715,7 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
         notificationElement.parentElement.style.opacity = '0';
         notificationElement.parentElement.style.pointerEvents = 'none';
       }
-    }, 300); // match animation duration
-  }
-
-  /**
-   * Sets the page title.
-   * @param {string} title Title to display.
-   */
-  function setPageTitle(title) {
-    if (!pageTitleContainer) {
-      return;
-    }
-
-    pageTitleContainer.querySelector('h1').textContent = title;
+    }, 200); // match animation duration
   }
 
   /**
@@ -2200,7 +2769,13 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
    * @param {*} filterText The text to search for.
    */
   function filterCookies(target, filterText) {
-    const cookies = cookiesListHtml.querySelectorAll('.cookie');
+    // Get the currently displayed cookie list element
+    const currentCookieList = document.getElementById('cookie-container').querySelector('ul');
+    if (!currentCookieList) {
+      // If the list element doesn't exist for some reason, exit early.
+      return;
+    }
+    const cookies = currentCookieList.querySelectorAll('.cookie');
     filterText = filterText.toLowerCase();
 
     if (filterText) {
@@ -2324,6 +2899,8 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       if (!profileSelector) return;
       
       // Get profiles and metadata for domain
+      // Force cache invalidation by calling _invalidateCache first
+      profileManager._invalidateCache();
       const profileNames = await profileManager.getProfileNamesForDomain(domain);
       const metadata = await profileManager.getProfileMetadataForDomain(domain);
       
@@ -2387,9 +2964,18 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       if (!statusContainer) return;
       
       if (metadata.lastLoaded) {
+        // Get the Load button
+        const loadBtn = document.getElementById('load-profile');
+        
         if (metadata.modified) {
+          // Set status to modified
           statusContainer.textContent = `Modified since loading "${metadata.lastLoaded}"`;
           statusContainer.className = 'profile-status modified';
+          
+          // Enable the Load button for modified profiles
+          if (loadBtn && profileSelector && profileSelector.value === metadata.lastLoaded) {
+            loadBtn.disabled = false;
+          }
           
           // Update the profile selector option text for the loaded profile
           if (profileSelector) {
@@ -2401,8 +2987,14 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
             }
           }
         } else {
+          // Set status to loaded (unmodified)
           statusContainer.textContent = `Currently loaded: ${metadata.lastLoaded}`;
           statusContainer.className = 'profile-status loaded';
+          
+          // Disable Load button for already loaded profiles that aren't modified
+          if (loadBtn && profileSelector && profileSelector.value === metadata.lastLoaded) {
+            loadBtn.disabled = true;
+          }
           
           // Update the profile selector option text for the loaded profile
           if (profileSelector) {
@@ -2415,6 +3007,7 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
           }
         }
       } else {
+        // No profile loaded
         statusContainer.textContent = 'No profile loaded';
         statusContainer.className = 'profile-status none';
         
@@ -2467,13 +3060,6 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
           console.error('Error checking profile metadata:', error);
         });
     }
-  }
-
-  /**
-   * Prompts for a profile name
-    document.getElementById('load-profile').disabled = !isSelected;
-    document.getElementById('edit-profile').disabled = !isSelected;
-    document.getElementById('delete-profile').disabled = !isSelected;
   }
 
   /**
@@ -2751,45 +3337,14 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       // Remove the loading indicator
       containerCookie.removeChild(loadingIndicator);
       
-      // Load fresh cookies without animation
-      const freshCookies = await new Promise((resolve) => {
-        cookieHandler.getAllCookies(resolve);
-      });
-      
-      // Sort the cookies
-      const sortedCookies = freshCookies.sort(sortCookiesByName);
-      
-      // Prepare new state
-      loadedCookies = {};
-      
-      if (sortedCookies.length === 0) {
-        showNoCookies();
-        disableButtons = false;
-        // Restore container height
-        requestAnimationFrame(() => {
-          containerCookie.style.height = '';
-        });
-        return;
+      // Now determine which cookies to show based on the currently selected domain
+      if (selectedDomain) {
+        // If a specific domain is selected in the dropdown, use that
+        await showCookiesForSelectedDomain(true);
+      } else {
+        // Otherwise show current tab cookies
+        await showCookiesForTab(true);
       }
-      
-      // Create new list without animation (optimize DOM operations)
-      cookiesListHtml = document.createElement('ul');
-      cookiesListHtml.appendChild(generateSearchBar());
-      
-      // Create a document fragment to batch DOM operations
-      const fragment = document.createDocumentFragment();
-      
-      sortedCookies.forEach(function (cookie) {
-        const id = Cookie.hashCode(cookie);
-        loadedCookies[id] = new Cookie(id, cookie, optionHandler);
-        fragment.appendChild(loadedCookies[id].html);
-      });
-      
-      // Append all cookies at once for better performance
-      cookiesListHtml.appendChild(fragment);
-      
-      // Replace content directly
-      containerCookie.appendChild(cookiesListHtml);
       
       // Restore original scroll position
       containerCookie.scrollTop = scrollPos;
@@ -2834,7 +3389,6 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       return;
     }
 
-    setPageTitle('Cookie-Editor');
     document.getElementById('button-bar-add').classList.remove('active');
     document.getElementById('button-bar-import').classList.remove('active');
     document.getElementById('button-bar-default').classList.add('active');
@@ -3083,15 +3637,19 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       currentCookies.push(loadedCookies[id].cookie);
     }
     
+    // Log cookie state for debugging
+    console.log(`[checkIfCookiesModified] Checking ${currentCookies.length} cookies against loaded profile for domain ${currentDomain}`);
+    
     // Check if cookies have been modified
     const modified = await profileManager.checkIfCookiesModified(currentDomain, currentCookies);
     
-    // If modified, update both the status indicator and profile selector (if not in side panel)
+    // If we needed to update the UI, update both the status indicator and profile selector
     if (!isSidePanel()) {
+      console.log(`[checkIfCookiesModified] Modified status: ${modified}, updating UI`);
       await updateProfileStatusIndicator(currentDomain);
-      if (modified) {
-        await updateProfileSelector(currentDomain);
-      }
+      
+      // Always update the profile selector to ensure button states are correct
+      await updateProfileSelector(currentDomain);
     }
   }
 
@@ -3199,11 +3757,17 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
             let targetDomain = currentDomain;
             
             if (importedData[currentDomain]) {
-              const importAllDomains = await confirmAction('Import profiles for all domains? Click OK to import all domains or Cancel to import only for the current domain.');
-              
-              if (importAllDomains) {
-                domainsToImport = Object.keys(importedData);
+              // Only ask about importing all domains if there's more than one domain
+              if (domainCount > 1) {
+                const importAllDomains = await confirmAction('Import profiles for all domains? Click OK to import all domains or Cancel to import only for the current domain.');
+                
+                if (importAllDomains) {
+                  domainsToImport = Object.keys(importedData);
+                } else {
+                  domainsToImport = [currentDomain];
+                }
               } else {
+                // Only one domain in the import file
                 domainsToImport = [currentDomain];
               }
             } else {
@@ -3224,32 +3788,45 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
               }
             }
             
-            // Ask whether to replace or merge
-            const shouldReplace = await confirmAction('Replace existing profiles for the selected domains? Click OK to replace or Cancel to merge with existing profiles.');
-            
-            // Get current profiles
+            // Ask whether to merge with existing profiles or cancel
             const allProfiles = await profileManager.getAllProfiles();
+            
+            // Check if there are existing profiles for the domains to be imported
+            let hasExistingProfiles = false;
+            for (const domain of domainsToImport) {
+              if (allProfiles[domain] && Object.keys(allProfiles[domain]).length > 0) {
+                hasExistingProfiles = true;
+                break;
+              }
+            }
+            
+            let shouldProceed = true;
+            if (hasExistingProfiles) {
+              shouldProceed = await confirmAction('OK to merge and replace existing ones (same profile name), CANCEL to cancel import');
+            }
+            
+            if (!shouldProceed) {
+              sendNotification('Import cancelled.', false);
+              return;
+            }
             
             // Import the selected domains
             for (const domain of domainsToImport) {
-              if (shouldReplace) {
-                // Replace this domain's profiles
-                allProfiles[domain] = importedData[domain];
-              } else {
-                // Merge with existing profiles for this domain
-                if (!allProfiles[domain]) {
-                  allProfiles[domain] = {};
-                }
-                
-                // Add imported profiles for this domain
-                for (const profileName in importedData[domain]) {
-                  allProfiles[domain][profileName] = importedData[domain][profileName];
-                }
+              if (!allProfiles[domain]) {
+                allProfiles[domain] = {};
+              }
+              
+              // Add imported profiles for this domain
+              for (const profileName in importedData[domain]) {
+                allProfiles[domain][profileName] = importedData[domain][profileName];
               }
             }
             
             // Save updated profiles
             await storageHandler.setLocal(profileManager.profileStorageKey, allProfiles);
+            
+            // Force cache invalidation before updating UI
+            profileManager._invalidateCache();
             
             // Update the UI
             await updateProfileSelector(targetDomain);
@@ -3574,6 +4151,9 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       domainSelector.options[0].textContent = `Current tab domain (${currentDomain})`;
     }
     
+    // Add custom domain option right after "Current tab domain"
+    addCustomDomainOption();
+    
     // Add a placeholder option that indicates loading will happen
     const loadOption = document.createElement('option');
     loadOption.value = "__load__";
@@ -3584,15 +4164,45 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     // IMPROVEMENT: Start loading domains in the background after a short delay
     // to avoid blocking the initial popup display
     setTimeout(() => {
+      // Ensure selector still exists and check loading flag
+      if (!domainSelector) return;
+      if (!domainSelector._isLoading) {
+          domainSelector._isLoading = true;
+          // Ensure loading option exists and is marked as loading
+          const loadingOption = Array.from(domainSelector.options).find(opt => opt.value === '__load__');
+          if (loadingOption) {
+              loadingOption.textContent = "Loading domains...";
+              loadingOption.disabled = true;
+          } else {
+              // If loading option somehow doesn't exist, abort background load
+              domainSelector._isLoading = false;
+              return;
+          }
+      } else {
+          // If already loading (e.g. mousedown triggered first), don't start again
+          return;
+      }
+
+
       getAllDomainsWrapper((domains) => {
         // This callback runs when domains are fetched
-        if (!domainSelector) return; // Check again in case popup closed
-          
-        // Clear existing options except the first one ("Current tab domain")
-        while (domainSelector.options.length > 1) {
-          domainSelector.remove(1);
+        if (!domainSelector) {
+            // Popup closed, clear flag if it was set by this timeout
+            if (domainSelector && domainSelector._isLoading) domainSelector._isLoading = false;
+            return;
         }
-          
+
+        // Explicitly remove the loading option if it still exists
+        const currentLoadingOption = Array.from(domainSelector.options).find(opt => opt.value === '__load__');
+        if (currentLoadingOption) {
+            domainSelector.removeChild(currentLoadingOption);
+        }
+
+        // Clear existing dynamically added domain options (beyond index 1: Current, Custom)
+        while (domainSelector.options.length > 2) {
+          domainSelector.remove(2); // Remove from the end
+        }
+
         // Populate the domain selector
         domains.sort().forEach((domain) => {
           const option = document.createElement('option');
@@ -3600,43 +4210,61 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
           option.textContent = domain;
           domainSelector.appendChild(option);
         });
+
+        // Clear loading flag
+        domainSelector._isLoading = false;
+
+        // NOTE: No need to programmatically open dropdown here,
+        // this is the background load. It should only open on user interaction (mousedown).
       });
     }, 150); // Short delay to allow the popup to render first
-    
+
     // IMPROVEMENT: Add a mousedown event to ensure domains are loaded
     // if background loading hasn't completed yet
     const loadDomains = function(event) {
-      // Check if domains have already loaded (if there are more than 2 options)
+      // Check if domains are already loaded (more than 2 options: Current, Custom + at least one domain)
+      // We check > 2 because the loading option is removed upon completion.
+      // Also ensure the loading option itself is gone before removing the listener.
       if (domainSelector.options.length > 2) {
-        // Remove this event listener if already loaded
-        domainSelector.removeEventListener('mousedown', loadDomains);
-        return;
+          const loadingOption = Array.from(domainSelector.options).find(opt => opt.value === '__load__');
+          if (!loadingOption) { // Ensure loading option is gone
+              // Remove this event listener if already loaded
+              domainSelector.removeEventListener('mousedown', loadDomains);
+              return;
+          }
       }
-      
-      // If domains are still loading, make sure the loading text is visible
-      if (domainSelector.options.length === 2) {
-        domainSelector.options[1].textContent = "Loading domains...";
-        domainSelector.options[1].disabled = true;
-      }
-      
-      // Prevent dropdown from opening while domains are still loading
-      if (domainSelector.options.length <= 2 && !domainSelector._isLoading) {
+
+      // Find the loading option
+      const loadingOption = Array.from(domainSelector.options).find(opt => opt.value === '__load__');
+
+      // If loading is actually needed (loading option exists and not already loading)
+      if (loadingOption && !domainSelector._isLoading) {
         event.preventDefault();
         event.stopPropagation();
-        
+
         // Set flag to prevent multiple loads
         domainSelector._isLoading = true;
-        
-        // Start fetching domains if not already loading
+
+        // Update loading option state
+        loadingOption.textContent = "Loading domains...";
+        loadingOption.disabled = true;
+
+        // Start fetching domains
         getAllDomainsWrapper((domains) => {
-          // This callback runs when domains are fetched
+          // Callback runs when domains are fetched
           if (!domainSelector) return; // Check again in case popup closed
-          
-          // Clear existing options except the first one ("Current tab domain")
-          while (domainSelector.options.length > 1) {
-            domainSelector.remove(1);
+
+          // Explicitly remove the loading option if it still exists
+          const currentLoadingOption = Array.from(domainSelector.options).find(opt => opt.value === '__load__');
+          if (currentLoadingOption) {
+              domainSelector.removeChild(currentLoadingOption);
           }
-          
+
+          // Remove any dynamically added domain options (beyond index 1: Current, Custom) before repopulating
+          while (domainSelector.options.length > 2) {
+            domainSelector.remove(2); // Remove from the end after the fixed ones
+          }
+
           // Populate the domain selector
           domains.sort().forEach((domain) => {
             const option = document.createElement('option');
@@ -3644,19 +4272,217 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
             option.textContent = domain;
             domainSelector.appendChild(option);
           });
-          
+
           // Clear loading flag
           domainSelector._isLoading = false;
-          
-          // Now that domains are loaded, trigger a click to open the dropdown
+
+          // Now that domains are loaded, trigger the dropdown to open
           setTimeout(() => {
-            domainSelector.click();
-          }, 10);
+            if (domainSelector) {
+              // Programmatically open the dropdown by simulating a mousedown event
+              const openEvent = new MouseEvent('mousedown');
+              domainSelector.dispatchEvent(openEvent);
+            }
+          }, 0); // Use timeout 0 to allow UI update before dispatching event
         });
+      } else if (domainSelector._isLoading) {
+          // If it's already loading (_isLoading is true), prevent default but don't start another load
+          event.preventDefault();
+          event.stopPropagation();
       }
+      // Otherwise (loading option not present, or _isLoading is false but loadingOption missing),
+      // allow the default mousedown action (opening the dropdown).
     };
-    
+
     domainSelector.addEventListener('mousedown', loadDomains);
+  }
+
+  /**
+   * Adds a custom domain input option to the domain selector dropdown
+   */
+  function addCustomDomainOption() {
+    // Check if custom option already exists to prevent duplicates
+    const existingCustomOption = Array.from(domainSelector.options).find(opt => opt.value === "__custom__");
+    if (existingCustomOption) return;
+    
+    // Check if input field already exists to prevent duplicates
+    const existingInput = document.getElementById('custom-domain-input');
+    if (existingInput) existingInput.remove();
+    
+    // Create option for custom domain entry
+    const customOption = document.createElement('option');
+    customOption.value = "__custom__";
+    customOption.textContent = "Enter custom domain...";
+    customOption.classList.add('custom-domain-option');
+    
+    // Insert the custom option as the second option (index 1) right after "Current tab domain"
+    if (domainSelector.options.length > 0) {
+      // If there's only one option (Current tab domain), just append it
+      if (domainSelector.options.length === 1) {
+        domainSelector.appendChild(customOption);
+      } else {
+        // Otherwise insert it after the first option
+        domainSelector.insertBefore(customOption, domainSelector.options[1]);
+      }
+    } else {
+      domainSelector.appendChild(customOption);
+    }
+    
+    // Create input element that will appear when custom option is selected
+    const customDomainInput = document.createElement('input');
+    customDomainInput.type = 'text';
+    customDomainInput.id = 'custom-domain-input';
+    customDomainInput.placeholder = 'example.com';
+    customDomainInput.style.display = 'none';
+    customDomainInput.style.width = '100%';
+    customDomainInput.style.boxSizing = 'border-box';
+    customDomainInput.style.padding = '5px';
+    customDomainInput.style.margin = '5px 0';
+    domainSelector.parentNode.insertBefore(customDomainInput, domainSelector.nextSibling);
+    
+    // Remove existing event listener if it exists
+    domainSelector.removeEventListener('change', handleDomainSelectorChange);
+    
+    // Event listener for when domain selector changes
+    function handleDomainSelectorChange() {
+      if (domainSelector.value === '__custom__') {
+        // Hide the dropdown and show the input field
+        domainSelector.style.display = 'none';
+        customDomainInput.style.display = 'block';
+        customDomainInput.focus();
+      }
+    }
+    
+    // Add the event listener
+    domainSelector.addEventListener('change', handleDomainSelectorChange);
+    
+    // Event listener for when Enter is pressed in custom domain input
+    customDomainInput.addEventListener('keydown', async function(e) {
+      if (e.key === 'Enter') {
+        const customDomain = this.value.trim();
+        
+        if (customDomain) {
+          try {
+            // Create proper URL format to check permissions
+            let customUrl;
+            if (customDomain.includes('://')) {
+              customUrl = customDomain;
+            } else {
+              customUrl = 'https://' + customDomain;
+            }
+            
+            // Check if we can request permissions
+            if (!permissionHandler.canHavePermissions(customUrl)) {
+              showPermissionImpossible();
+              // Reset UI state
+              resetCustomDomainUI();
+              return;
+            }
+            
+            // Check if we already have permission
+            const hasPermission = await permissionHandler.checkPermissions(customUrl);
+            
+            if (!hasPermission) {
+              // Request permission
+              const granted = await permissionHandler.requestPermission(customUrl);
+              if (!granted) {
+                showNoPermission();
+                // Reset UI state
+                resetCustomDomainUI();
+                return;
+              }
+            }
+            
+            // Update the selected domain
+            selectedDomain = customDomain;
+            currentDomain = customDomain;
+            
+            // Clear cookie cache
+            cookieCache.clear();
+            
+            // Reset UI state
+            customDomainInput.style.display = 'none';
+            domainSelector.style.display = 'block';
+            
+            // Add option for this domain if it doesn't exist
+            let domainExists = false;
+            let customOptionIndex = -1;
+            
+            // Check if domain already exists and find custom option index
+            for (let i = 0; i < domainSelector.options.length; i++) {
+              if (domainSelector.options[i].value === customDomain) {
+                domainExists = true;
+                domainSelector.selectedIndex = i;
+              }
+              if (domainSelector.options[i].value === "__custom__") {
+                customOptionIndex = i;
+              }
+            }
+            
+            if (!domainExists && customDomain !== "") {
+              const newOption = document.createElement('option');
+              newOption.value = customDomain;
+              newOption.textContent = customDomain;
+              
+              // Add new domain right after the custom domain option
+              if (customOptionIndex !== -1 && customOptionIndex + 1 < domainSelector.options.length) {
+                domainSelector.insertBefore(newOption, domainSelector.options[customOptionIndex + 1]);
+              } else {
+                // Fallback to appending at the end
+                domainSelector.appendChild(newOption);
+              }
+              domainSelector.value = customDomain;
+            }
+            
+            // Update profile selector
+            if (!isSidePanel() && profileSelector) {
+              updateProfileSelector(currentDomain).catch(error => {
+                console.error('Error updating profile selector for custom domain:', error);
+              });
+            }
+            
+            // Show cookies for this domain
+            isAnimating = true;
+            showCookiesForSelectedDomain(true).then(() => {
+              isAnimating = false;
+            }).catch(error => {
+              console.error('Error showing cookies for custom domain:', error);
+              isAnimating = false;
+            });
+          } catch (error) {
+            console.error('Error processing custom domain:', error);
+            showNoPermission();
+            // Reset UI state
+            resetCustomDomainUI();
+          }
+        } else {
+          // Reset UI state if empty input
+          resetCustomDomainUI();
+        }
+      } else if (e.key === 'Escape') {
+        // Reset UI state on Escape
+        resetCustomDomainUI();
+      }
+    });
+    
+    // Function to reset the custom domain UI state
+    function resetCustomDomainUI() {
+      customDomainInput.style.display = 'none';
+      domainSelector.style.display = 'block';
+      domainSelector.value = '';
+      // Explicitly clear selected domain and trigger change handler
+      selectedDomain = '';
+      handleDomainSelectionChange(); 
+    }
+    
+    // Handle clicking outside the input - use capturing phase to ensure it runs before other handlers
+    document.addEventListener('click', function handleOutsideClick(e) {
+      if (e.target !== customDomainInput && 
+          e.target !== domainSelector && 
+          customDomainInput.style.display === 'block') {
+        resetCustomDomainUI();
+      }
+    }, true);
   }
   
   /**
@@ -3668,9 +4494,8 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     
     console.log('[handleDomainSelectionChange] Called. Selected value:', domainSelector.value);
     
-    // Check flags before proceeding
-    if (disableButtons || isAnimating) {
-      console.log('[handleDomainSelectionChange] Skipped due to disableButtons or isAnimating flag.');
+    // Skip custom domain option as it's handled separately
+    if (domainSelector.value === '__custom__') {
       return;
     }
     
@@ -3683,6 +4508,37 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     // IMPORTANT: Clear cookie cache when changing domains
     cookieCache.clear();
     
+    // Check if we're currently in the add cookie or import cookie screens
+    const isInAddCookieScreen = document.getElementById('button-bar-add').classList.contains('active');
+    const isInImportScreen = document.getElementById('button-bar-import').classList.contains('active');
+    
+    // If we're in the add or import screens, update the domain data without switching views
+    if (isInAddCookieScreen || isInImportScreen) {
+      console.log('[handleDomainSelectionChange] In add/import screen, updating domain data without view change');
+      
+      // Update profile selector only if it exists (popup only feature)
+      if (!isSidePanel() && profileSelector) {
+        updateProfileSelector(currentDomain).catch(error => {
+          console.error('Error updating profile selector for new domain:', error);
+        });
+      }
+      
+      // Update the form's domain data
+      const form = containerCookie.querySelector('form');
+      if (form && form.dataset) {
+        form.dataset.domain = selectedDomain;
+        console.log('[handleDomainSelectionChange] Updated form domain data to:', selectedDomain);
+      }
+      
+      return;
+    }
+    
+    // Check flags before proceeding with view change
+    if (disableButtons || isAnimating) {
+      console.log('[handleDomainSelectionChange] Skipped due to disableButtons or isAnimating flag.');
+      return;
+    }
+    
     console.log('[handleDomainSelectionChange] Current flags - disableButtons:', disableButtons, 'isAnimating:', isAnimating);
     
     // Update profile selector only if it exists (popup only feature)
@@ -3693,37 +4549,61 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     }
     
     // Set animation flag to indicate operation in progress
-    // We still need this for the UI to work correctly, but we'll bypass
-    // this flag check in showCookiesForSelectedDomain by using forceExecution
     isAnimating = true;
     
     console.log('[handleDomainSelectionChange] Calling showCookiesForSelectedDomain for selected domain:', selectedDomain, 'isAnimating:', isAnimating);
     
-    // Check if user selected "Current tab domain" (empty value)
-    if (selectedDomain === '') {
-      // If empty value selected, show cookies for current tab
-      console.log('[handleDomainSelectionChange] Empty domain selected, showing cookies for current tab');
-      showCookiesForTab(true).then(() => {
-        console.log('[handleDomainSelectionChange] showCookiesForTab Promise resolved, resetting animation flag.');
-        // Reset animation flag when done
-        isAnimating = false;
-      }).catch(error => {
-        console.error('[handleDomainSelectionChange] Error in showCookiesForTab:', error);
-        // Ensure flags are reset even on error
-        isAnimating = false;
-      });
-    } else {
-      // For any other domain, show cookies for selected domain
-      // Pass forceExecution=true to bypass the disableButtons and isAnimating checks
-      showCookiesForSelectedDomain(true).then(() => {
-        console.log('[handleDomainSelectionChange] showCookiesForSelectedDomain Promise resolved, resetting animation flag.');
-        // Reset animation flag when done
-        isAnimating = false;
-      }).catch(error => {
-        console.error('[handleDomainSelectionChange] Error in showCookiesForSelectedDomain:', error);
-        // Ensure flags are reset even on error
-        isAnimating = false;
-      });
+    try {
+      // Check if user selected "Current tab domain" (empty value)
+      if (selectedDomain === '') {
+        // If empty value selected, show cookies for current tab
+        console.log('[handleDomainSelectionChange] Empty domain selected, showing cookies for current tab');
+        
+        // Use a promise with timeout to ensure isAnimating flag gets reset
+        const loadingPromise = showCookiesForTab(true);
+        
+        // Set a timeout to ensure flag is reset even if promise hangs
+        const timeoutId = setTimeout(() => {
+          console.log('[handleDomainSelectionChange] Safety timeout triggered, resetting animation flag.');
+          isAnimating = false;
+        }, 5000); // 5 second safety timeout
+        
+        loadingPromise.then(() => {
+          console.log('[handleDomainSelectionChange] showCookiesForTab Promise resolved, resetting animation flag.');
+          clearTimeout(timeoutId); // Clear the safety timeout
+          isAnimating = false;
+        }).catch(error => {
+          console.error('[handleDomainSelectionChange] Error in showCookiesForTab:', error);
+          clearTimeout(timeoutId); // Clear the safety timeout
+          isAnimating = false;
+        });
+      } else {
+        // For any other domain, show cookies for selected domain
+        // Pass forceExecution=true to bypass the disableButtons and isAnimating checks
+        
+        // Use a promise with timeout to ensure isAnimating flag gets reset
+        const loadingPromise = showCookiesForSelectedDomain(true);
+        
+        // Set a timeout to ensure flag is reset even if promise hangs
+        const timeoutId = setTimeout(() => {
+          console.log('[handleDomainSelectionChange] Safety timeout triggered, resetting animation flag.');
+          isAnimating = false;
+        }, 5000); // 5 second safety timeout
+        
+        loadingPromise.then(() => {
+          console.log('[handleDomainSelectionChange] showCookiesForSelectedDomain Promise resolved, resetting animation flag.');
+          clearTimeout(timeoutId); // Clear the safety timeout
+          isAnimating = false;
+        }).catch(error => {
+          console.error('[handleDomainSelectionChange] Error in showCookiesForSelectedDomain:', error);
+          clearTimeout(timeoutId); // Clear the safety timeout
+          isAnimating = false;
+        });
+      }
+    } catch (error) {
+      // Catch any synchronous errors
+      console.error('[handleDomainSelectionChange] Unexpected error:', error);
+      isAnimating = false;
     }
   }
   
@@ -3864,11 +4744,17 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
             let targetDomain = currentDomain;
             
             if (importedData[currentDomain]) {
-              const importAllDomains = await confirmAction('Import profiles for all domains? Click OK to import all domains or Cancel to import only for the current domain.');
-              
-              if (importAllDomains) {
-                domainsToImport = Object.keys(importedData);
+              // Only ask about importing all domains if there's more than one domain
+              if (domainCount > 1) {
+                const importAllDomains = await confirmAction('Import profiles for all domains? Click OK to import all domains or Cancel to import only for the current domain.');
+                
+                if (importAllDomains) {
+                  domainsToImport = Object.keys(importedData);
+                } else {
+                  domainsToImport = [currentDomain];
+                }
               } else {
+                // Only one domain in the import file
                 domainsToImport = [currentDomain];
               }
             } else {
@@ -3889,32 +4775,45 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
               }
             }
             
-            // Ask whether to replace or merge
-            const shouldReplace = await confirmAction('Replace existing profiles for the selected domains? Click OK to replace or Cancel to merge with existing profiles.');
-            
-            // Get current profiles
+            // Ask whether to merge with existing profiles or cancel
             const allProfiles = await profileManager.getAllProfiles();
+            
+            // Check if there are existing profiles for the domains to be imported
+            let hasExistingProfiles = false;
+            for (const domain of domainsToImport) {
+              if (allProfiles[domain] && Object.keys(allProfiles[domain]).length > 0) {
+                hasExistingProfiles = true;
+                break;
+              }
+            }
+            
+            let shouldProceed = true;
+            if (hasExistingProfiles) {
+              shouldProceed = await confirmAction('OK to merge and replace existing ones (same profile name), CANCEL to cancel import');
+            }
+            
+            if (!shouldProceed) {
+              sendNotification('Import cancelled.', false);
+              return;
+            }
             
             // Import the selected domains
             for (const domain of domainsToImport) {
-            if (shouldReplace) {
-                // Replace this domain's profiles
-                allProfiles[domain] = importedData[domain];
-            } else {
-              // Merge with existing profiles for this domain
-                if (!allProfiles[domain]) {
-                  allProfiles[domain] = {};
+              if (!allProfiles[domain]) {
+                allProfiles[domain] = {};
               }
               
               // Add imported profiles for this domain
-                for (const profileName in importedData[domain]) {
-                  allProfiles[domain][profileName] = importedData[domain][profileName];
-                }
+              for (const profileName in importedData[domain]) {
+                allProfiles[domain][profileName] = importedData[domain][profileName];
               }
             }
             
             // Save updated profiles
             await storageHandler.setLocal(profileManager.profileStorageKey, allProfiles);
+            
+            // Force cache invalidation before updating UI
+            profileManager._invalidateCache();
             
             // Update the UI
             await updateProfileSelector(targetDomain);
@@ -4018,6 +4917,7 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     const urlField = template.getElementById('share-url-field');
     const copyButton = template.getElementById('copy-share-url');
     const cancelButton = template.getElementById('share-cancel');
+    const closeXButton = template.getElementById('share-close-x');
     
     // Add tooltip to URL field
     const permissionTooltip = `Recipients will need cookie permissions for ${domain} to import these cookies.`;
@@ -4251,6 +5151,19 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       sharedDataProcessingInProgress = false;
     });
     
+    // Handle the Close X button click
+    closeXButton.addEventListener('click', () => {
+      dialogElement.remove();
+      removeHashFromUrl();
+      
+      // Clear storage and badge
+      browserDetector.getApi().storage.local.remove('pendingSharedData');
+      clearBadge();
+      
+      // Reset the processing flag
+      sharedDataProcessingInProgress = false;
+    });
+    
     // Close dialog when pressing Escape
     document.addEventListener('keydown', function closeDialogOnEscape(e) {
       if (e.key === 'Escape') {
@@ -4298,6 +5211,12 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
         console.log('Found shared cookies data:',
           sharedData.encrypted ? 'Encrypted data' :
           `${sharedData.c?.length || 0} cookies for domain ${sharedData.d || 'unknown'}`);
+        console.log('Shared data details:', {
+          type: sharedData.type,
+          encrypted: sharedData.encrypted,
+          hasParams: sharedData.params ? 'Yes' : 'No',
+          domain: sharedData.d
+        });
         
         // Update the badge through background script
         updateBadge(
@@ -4318,7 +5237,60 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
         
         // Display the appropriate dialog
         if (sharedData.encrypted) {
-          showPasswordPrompt(sharedData.params);
+          // Set flag to prevent concurrent operations
+          sharedDataProcessingInProgress = true;
+          
+          // Show password prompt and handle the resolved decrypted data
+          // Pass the data type from the URL to ensure proper handling
+          showPasswordPrompt(sharedData.params, sharedData.type)
+            .then(decryptedData => {
+              // Check if decryption was successful or user canceled
+              if (!decryptedData) {
+                sharedDataProcessingInProgress = false;
+                return;
+              }
+              
+              // Process the decrypted data
+              if (decryptedData.type === 'profiles') {
+                // Handle profiles
+                const profiles = decryptedData.p;
+                const domain = decryptedData.d;
+                
+                if (!profiles || !domain) {
+                  sendNotification('Invalid shared profile data', true);
+                  sharedDataProcessingInProgress = false;
+                  return;
+                }
+                
+                // Prompt user to confirm import
+                showImportProfilesDialog(decryptedData);
+              } else {
+                // Handle cookies
+                const cookies = decryptedData.c;
+                const domain = decryptedData.d;
+                
+                if (!cookies || !cookies.length || !domain) {
+                  sendNotification('Invalid shared cookie data', true);
+                  sharedDataProcessingInProgress = false;
+                  return;
+                }
+                
+                // Show import confirmation dialog
+                showImportDialog({
+                  cookies,
+                  domain,
+                  expires: decryptedData.e,
+                  timestamp: decryptedData.t
+                });
+              }
+              
+              // Clear the URL hash
+              removeHashFromUrl();
+            })
+            .catch(error => {
+              console.error('Error processing decrypted data:', error);
+              sharedDataProcessingInProgress = false;
+            });
         } else {
           console.log('Showing import dialog for shared cookies');
           showImportDialog(sharedData);
@@ -4407,7 +5379,7 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       // If there's encrypted data that requires a password
       if (pendingData.encrypted) {
         // Show password prompt
-        const decryptedData = await showPasswordPrompt(pendingData.params);
+        const decryptedData = await showPasswordPrompt(pendingData.params, pendingData.type || 'cookies');
         
         if (!decryptedData) {
           // User canceled or decryption failed
@@ -4667,9 +5639,10 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
   /**
    * Shows a password prompt to decrypt encrypted cookie or profile data
    * @param {object} encryptedParams - The encrypted data parameters
+   * @param {string} dataType - The type of data ('cookies' or 'profiles')
    * @return {Promise<object|null>} Decrypted data or null if canceled
    */
-  async function showPasswordPrompt(encryptedParams) {
+  async function showPasswordPrompt(encryptedParams, dataType = 'cookies') {
     // Check if a dialog is already open
     if (document.querySelector('.share-dialog')) {
       sharedDataProcessingInProgress = false;
@@ -4684,11 +5657,25 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       );
       
       const dialogElement = template.querySelector('.share-dialog');
+      const titleElement = dialogElement.querySelector('h3');
+      const descriptionElement = dialogElement.querySelector('p');
       const passwordField = template.querySelector('#decrypt-password');
       const showPasswordBtn = template.querySelector('#show-decrypt-password');
       const errorMessage = template.querySelector('#decrypt-error');
       const cancelButton = template.querySelector('#decrypt-cancel');
       const confirmButton = template.querySelector('#decrypt-confirm');
+      
+      // Customize based on dataType
+      if (dataType === 'profiles') {
+        titleElement.textContent = 'Enter Password';
+        descriptionElement.textContent = 'This URL contains password-encrypted profiles. Please enter the password to decrypt and import them.';
+      } else {
+        titleElement.textContent = 'Enter Password';
+        descriptionElement.textContent = 'This URL contains password-encrypted cookies. Please enter the password to decrypt and import them.';
+      }
+      
+      // Add the dialog to the DOM first (before positioning)
+      document.body.appendChild(dialogElement);
       
       // Position the dialog (centered)
       dialogElement.style.position = 'absolute';
@@ -4722,6 +5709,14 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
         resolve(null);
       });
       
+      // Close (X) button
+      const closeXButton = template.querySelector('#decrypt-cancel-x');
+      if (closeXButton) {
+        closeXButton.addEventListener('click', () => {
+          cancelButton.click(); // Reuse the cancel logic
+        });
+      }
+      
       // Add Enter key handler for the password field
       passwordField.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
@@ -4750,36 +5745,88 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
           // Import decryption functions
           const { decryptCookies, decryptProfiles } = await import('../lib/sharing/cookieSharing.js');
           
-          // Try to decrypt as profiles first
-          try {
-            const profileData = await decryptProfiles(encryptedParams, password);
-            if (profileData) {
-              // It's profile data
-              dialogElement.remove();
-              resolve({
-                type: 'profiles',
-                ...profileData
-              });
-              return;
+          console.log('Decrypting with data type:', dataType);
+          
+          // Attempt to decrypt based on the known data type first
+          let decryptedData = null;
+          let success = false;
+          
+          if (dataType === 'profiles') {
+            // Try profile decryption first
+            try {
+              decryptedData = await decryptProfiles(encryptedParams, password);
+              if (decryptedData) {
+                success = true;
+                console.log('Successfully decrypted profile data');
+                dialogElement.remove();
+                resolve({
+                  type: 'profiles',
+                  ...decryptedData
+                });
+                return;
+              }
+            } catch (error) {
+              console.log('Failed to decrypt as profile data, will try cookies as fallback', error);
             }
-          } catch (profileError) {
-            console.log('Not profile data, trying as cookies');
+            
+            // Fallback to cookie decryption
+            if (!success) {
+              try {
+                decryptedData = await decryptCookies(encryptedParams, password);
+                if (decryptedData) {
+                  console.log('Successfully decrypted cookie data (fallback)');
+                  dialogElement.remove();
+                  resolve({
+                    type: 'cookies',
+                    ...decryptedData
+                  });
+                  return;
+                }
+              } catch (fallbackError) {
+                console.log('Both decryption attempts failed');
+                throw new Error('Failed to decrypt data');
+              }
+            }
+          } else {
+            // Default is cookie decryption first
+            try {
+              decryptedData = await decryptCookies(encryptedParams, password);
+              if (decryptedData) {
+                success = true;
+                console.log('Successfully decrypted cookie data');
+                dialogElement.remove();
+                resolve({
+                  type: 'cookies',
+                  ...decryptedData
+                });
+                return;
+              }
+            } catch (error) {
+              console.log('Failed to decrypt as cookie data, will try profiles as fallback', error);
+            }
+            
+            // Fallback to profile decryption
+            if (!success) {
+              try {
+                decryptedData = await decryptProfiles(encryptedParams, password);
+                if (decryptedData) {
+                  console.log('Successfully decrypted profile data (fallback)');
+                  dialogElement.remove();
+                  resolve({
+                    type: 'profiles',
+                    ...decryptedData
+                  });
+                  return;
+                }
+              } catch (fallbackError) {
+                console.log('Both decryption attempts failed');
+                throw new Error('Failed to decrypt data');
+              }
+            }
           }
           
-          // Try to decrypt as cookies
-          const cookieData = await decryptCookies(encryptedParams, password);
-          if (!cookieData) {
-            throw new Error('Failed to decrypt data');
-          }
-          
-          // Remove password prompt
-          dialogElement.remove();
-          
-          // Resolve with the decrypted cookie data
-          resolve({
-            type: 'cookies',
-            ...cookieData
-          });
+          // If we get here, both attempts failed
+          throw new Error('Failed to decrypt data with the provided password');
         } catch (error) {
           console.error('Decryption error:', error);
           errorMessage.textContent = 'Invalid password or corrupted data';

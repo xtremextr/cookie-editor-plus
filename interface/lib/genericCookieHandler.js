@@ -20,23 +20,46 @@ export class GenericCookieHandler extends EventEmitter {
    * @param {function} callback
    */
   getAllCookies(callback) {
+    // Extract domain from the current tab's URL
+    const domain = this.currentTab.url ? this.currentTab.url.match(/^https?:\/\/([^/?#]+)(?:[/?#]|$)/i)?.[1] : null;
+
+    // Prepare filter parameters, omitting storeId to use the default context
+    const filter = {};
+
+    // Use domain if available, otherwise fall back to URL (though domain is preferred)
+    if (domain) {
+        filter.domain = domain;
+    } else if (this.currentTab.url) {
+        // Fallback for cases where domain extraction might fail (e.g., file:// URLs)
+        // This might still filter non-secure cookies if the URL is https.
+        filter.url = this.currentTab.url;
+    } else {
+        // Cannot get cookies without domain or URL
+        console.error("Cannot get cookies: No domain or URL found for the current tab.");
+        callback([]); // Return empty array or handle error appropriately
+        return;
+    }
+
     if (this.browserDetector.supportsPromises()) {
       this.browserDetector
         .getApi()
-        .cookies.getAll({
-          url: this.currentTab.url,
-          storeId: this.currentTab.cookieStoreId,
-        })
+        .cookies.getAll(filter) // Use the filter object
         .then(callback, function (e) {
-          
+          console.error("Error getting cookies (Promise):", e);
+          callback([]); // Pass empty array on error
         });
     } else {
       this.browserDetector.getApi().cookies.getAll(
-        {
-          url: this.currentTab.url,
-          storeId: this.currentTab.cookieStoreId,
-        },
-        callback,
+        filter, // Use the filter object
+        (cookies) => {
+            const error = this.browserDetector.getApi().runtime.lastError;
+            if (error) {
+                console.error("Error getting cookies (Callback):", error);
+                callback([]); // Pass empty array on error
+            } else {
+                callback(cookies);
+            }
+        }
       );
     }
   }
@@ -51,9 +74,9 @@ export class GenericCookieHandler extends EventEmitter {
       return this.getAllCookies(callback);
     }
     
+    // Omit storeId to use default context
     const filter = {
       domain: domain,
-      storeId: this.currentTab.cookieStoreId,
     };
     
     if (this.browserDetector.supportsPromises()) {
@@ -186,7 +209,6 @@ export class GenericCookieHandler extends EventEmitter {
           .cookies.remove({
             name: name,
             url: url,
-            storeId: this.currentTab.cookieStoreId,
           })
           .then(
             // Success handler
@@ -230,7 +252,6 @@ export class GenericCookieHandler extends EventEmitter {
           {
             name: name,
             url: url,
-            storeId: this.currentTab.cookieStoreId,
           },
           (result) => {
             if (callback) {
