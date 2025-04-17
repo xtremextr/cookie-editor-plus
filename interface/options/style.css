@@ -1,15 +1,23 @@
-@import url('../theme/light.css');
-@import url('../theme/dark.css');
+/* No theme imports here - themes are loaded by themeLoader.js */
 
 body {
   display: flex;
   justify-content: center;
-  align-items: center;
+  align-items: flex-start;
   min-height: 100vh;
+  margin: 0;
+  padding: 20px 0;
   font-family: 'Segoe UI', Tahoma, sans-serif;
   font-size: 100%;
   background-color: var(--primary-surface-color);
   color: var(--primary-text-color);
+}
+
+.page-wrapper {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  padding: 0 15px;
 }
 
 body * {
@@ -40,7 +48,6 @@ a:hover {
 .container {
   width: 100%;
   max-width: 600px;
-  margin: 0 auto;
 }
 
 .container > fieldset {
@@ -148,4 +155,43 @@ a:hover {
   border-radius: 4px;
   font-size: 0.9em;
   border-left: 4px solid var(--success-surface-color);
+}
+
+/* Notification styles */
+.notification {
+  position: fixed;
+  top: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 12px 20px;
+  margin-bottom: 0;
+  border-radius: 6px;
+  font-size: 0.95em;
+  font-weight: 500;
+  z-index: 1000;
+  min-width: 300px;
+  max-width: 80%;
+  text-align: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-left: 4px solid var(--primary-border-color);
+  background-color: rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(2px);
+}
+
+.notification.success {
+  border-left-color: var(--success-surface-color);
+  background-color: rgba(40, 167, 69, 0.05);
+}
+
+.notification.error {
+  border-left-color: var(--secondary-danger-color);
+  background-color: rgba(220, 53, 69, 0.05);
+}
+
+.notification.hidden {
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(-50%) translateY(-20px);
 }

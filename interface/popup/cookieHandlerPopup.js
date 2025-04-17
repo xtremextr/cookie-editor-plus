@@ -11,6 +11,11 @@ export class CookieHandlerPopup extends GenericCookieHandler {
   constructor(browserDetector) {
     super(browserDetector);
     
+    this.dynamicCookies = new Set(['_dd_s', 'datadome']);
+    this.cookieChangeHistory = {};
+    this.dynamicDetectionThreshold = 3;
+    this.dynamicDetectionWindow = 3500;
+
     this.isReady = false;
     this.currentTabId = null;
 
@@ -82,6 +87,23 @@ export class CookieHandlerPopup extends GenericCookieHandler {
     this._isProcessingCookieChange = true;
     
     try {
+      if (changeInfo.cookie) {
+        const name = changeInfo.cookie.name;
+        if (this.dynamicCookies.has(name)) {
+          return;
+        }
+        const now = Date.now();
+        if (!this.cookieChangeHistory[name]) {
+          this.cookieChangeHistory[name] = [];
+        }
+        this.cookieChangeHistory[name].push(now);
+        this.cookieChangeHistory[name] = this.cookieChangeHistory[name].filter(timestamp => now - timestamp <= this.dynamicDetectionWindow);
+        if (this.cookieChangeHistory[name].length > this.dynamicDetectionThreshold) {
+          this.dynamicCookies.add(name);
+          return;
+        }
+      }
+      
       // Get domain from the cookie
       const domain = changeInfo.cookie.domain.startsWith('.') ? 
         changeInfo.cookie.domain.substring(1) : 
@@ -100,9 +122,12 @@ export class CookieHandlerPopup extends GenericCookieHandler {
         const changeTimestamp = Date.now();
         
         // We store the last change timestamp to filter out rapid duplicate events
-        if (!this._lastChangeTimestamp || changeTimestamp - this._lastChangeTimestamp > 100) {
+        // Increase minimum time between changes to 1000ms (1 second)
+        if (!this._lastChangeTimestamp || changeTimestamp - this._lastChangeTimestamp > 1000) {
           this._lastChangeTimestamp = changeTimestamp;
           this.emit('cookiesChanged', changeInfo);
+        } else {
+          console.log('Throttling cookie change event, too soon after previous change');
         }
       }
     } finally {
@@ -117,10 +142,10 @@ export class CookieHandlerPopup extends GenericCookieHandler {
         // Take the first change and process it
         const nextChange = this._pendingCookieChanges.shift();
         
-        // Schedule the processing to happen after a short delay
+        // Schedule the processing to happen after a longer delay
         setTimeout(() => {
           this._processCookieChange(nextChange.changeInfo);
-        }, 10);
+        }, 500); // Increased from 10ms to 500ms for more throttling
       }
     }
   };

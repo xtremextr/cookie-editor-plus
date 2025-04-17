@@ -1,6 +1,3 @@
-@import url('../theme/light.css');
-@import url('../theme/dark.css');
-@import url('dark.css');
 @import url('../theme/switch.css');
 
 body {
@@ -45,118 +42,248 @@ svg.icon {
 }
 
 #pageTitle {
-  overflow: hidden;
   display: flex;
+  align-items: center;
   justify-content: space-between;
+  position: relative;
+  padding: 8px 12px;
+  height: 48px;
+  border-bottom: 1px solid var(--primary-border-color);
+  background-color: var(--primary-surface-color);
 }
 
 #pageTitle h1 {
   font-size: 16px;
-  line-height: 16px;
-  margin: 5px 0;
+  line-height: 1;
+  margin: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
   min-width: 0;
+  flex: 1;
+}
+
+#history-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 8px;
+}
+
+#history-controls button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px;
+  opacity: 0.8;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
 }
 
 #version {
-  position: absolute;
-  top: 14px;
-  right: 36px;
   font-size: 10px;
   color: #2e8b57;
   user-select: none;
+  margin: 0 8px;
+}
+
+.controls-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 #main-menu-button {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  height: 30px;
-  width: 30px;
+  position: relative;
+  height: 36px;
+  width: 36px;
   display: flex;
   align-items: center;
-  background: none;
+  justify-content: center;
+  background: var(--primary-accent-color);
   border: none;
-  text-align: center;
-  border-radius: 40px;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
+  z-index: 20;
 }
+
 #main-menu-button svg {
-  margin: 0 auto;
-  display: block;
+  width: 16px;
+  height: 16px;
+  fill: white;
+  transition: transform 0.3s ease;
 }
 
 #main-menu-button:hover {
-  background-color: var(--secondary-surface-color);
+  background-color: var(--primary-accent-darker);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
 }
 
 #main-menu-button:focus-visible {
   outline: 2px solid var(--primary-outline-color);
+  outline-offset: 2px;
 }
 
 #main-menu-content {
-  opacity: 0;
   position: absolute;
-  top: -999px;
-  right: 10px;
-  border-radius: 5px;
-  background-color: var(--menu-surface-color);
-  box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.35);
-  z-index: 10;
+  right: 8px;
+  top: 50px;
+  display: none;
+  background-color: var(--dropdown-bg);
+  border: none;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  min-width: 180px;
+  z-index: 30;
+  padding: 6px;
+  opacity: 0;
+  transform: translateY(-8px) scale(0.95);
+  transition: opacity 0.25s, transform 0.25s;
   overflow: hidden;
-  user-select: none;
-  transition: opacity 150ms linear;
 }
+
 #main-menu-content.visible {
-  top: 35px;
+  display: block;
   opacity: 1;
+  transform: translateY(0) scale(1);
 }
 
 #main-menu-content .menu-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 14px;
   width: 100%;
-  height: 40px;
-  line-height: 40px;
-  padding: 0 15px;
-  cursor: pointer;
-  background: transparent;
-  color: var(--primary-text-color);
+  padding: 8px 12px;
   border: none;
-  font-size: inherit;
-  font-family: inherit;
-  transition: background-color 100ms linear;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--primary-text-color);
+  white-space: nowrap;
+  transition: all 0.2s;
+  border-radius: 6px;
+  margin-bottom: 3px;
+}
+
+#main-menu-content .menu-item:last-child {
+  margin-bottom: 0;
 }
 
 #main-menu-content .menu-item:hover {
   background-color: var(--menu-surface-hover-color);
+  transform: translateX(4px);
 }
 
 #main-menu-content .menu-item:focus-visible {
   outline: 2px solid var(--primary-outline-color);
-  outline-offset: -3px;
-  border-radius: 4px;
+  outline-offset: -2px;
+  background-color: var(--menu-surface-hover-color);
 }
 
-#main-menu-content .menu-item .switch {
-  width: 32px;
-  height: 16px;
+#main-menu-content .menu-item svg.icon {
+  width: 14px;
+  height: 14px;
+  margin-right: 8px;
   vertical-align: middle;
 }
 
-#main-menu-content .menu-item .switch .slider:before {
-  height: 14px;
-  width: 14px;
-  bottom: 1px;
-  left: 2px;
+#main-menu-content .menu-item .switch {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  margin-left: 8px;
 }
+
+#main-menu-content .menu-item .switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  margin: 0;
+  padding: 0;
+}
+
+#main-menu-content .menu-item .switch .slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--switch-surface-neutral-color);
+  border-radius: 22px;
+  transition: all 0.3s;
+}
+
+#main-menu-content .menu-item .switch .slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 2px;
+  bottom: 2px;
+  background-color: var(--switch-surface-handle-color);
+  border-radius: 50%;
+  transition: all 0.3s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+#main-menu-content .menu-item .switch input:checked + .slider {
+  background-color: #2ecc71;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
 #main-menu-content .menu-item .switch input:checked + .slider:before {
-  -webkit-transform: translateX(14px);
-  -ms-transform: translateX(14px);
-  transform: translateX(14px);
+  transform: translateX(16px);
+}
+
+[data-theme="dark"] #main-menu-content {
+  background-color: var(--menu-surface-color);
+  border-color: var(--dropdown-border);
+}
+
+[data-theme="dark"] #main-menu-content .menu-item {
+  color: var(--primary-text-color);
+}
+
+[data-theme="dark"] #main-menu-content .menu-item:hover {
+  background-color: var(--menu-surface-hover-color);
+}
+
+[data-theme="dark"] #main-menu-content .menu-item .switch .slider {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+[data-theme="dark"] #main-menu-content .menu-item .switch .slider:before {
+  background-color: #ffffff;
+}
+
+[data-theme="dark"] #main-menu-content .menu-item .switch input:checked + .slider {
+  background-color: #2ecc71;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+[data-theme="dark"] #main-menu-button {
+  background: #45474d;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.25);
+}
+
+[data-theme="dark"] #main-menu-button:hover {
+  background-color: #373b44;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="dark"] #main-menu-button.active {
+  background-color: #373b44;
 }
 
 h2 {
@@ -249,7 +376,8 @@ button:focus {
 
 #domain-selector-container label {
   font-weight: 500;
-  margin-right: 10px;
+  margin-right: 3px;
+  font-size: 14px;
 }
 
 .domain-selector-wrapper {
@@ -743,7 +871,7 @@ body,
   flex: 1;
   overflow: hidden;
   padding: 0 8px 12px; /* Add bottom padding */
-  margin-top: 4px; /* Small margin at top */
+  margin-top: 8px;
   gap: 12px; /* Consistent gap between all flex items */
   position: relative;
 }
@@ -784,7 +912,6 @@ body,
 
 .panel-section-footer-button {
   font-size: 14px;
-  line-height: 14px;
   flex: 1 1;
   padding: 12px;
   text-align: center;
@@ -797,6 +924,11 @@ body,
 .panel-section-footer-button > div {
   text-align: center;
   transition: transform 100ms ease;
+}
+
+.panel-section-footer-button:hover > div,
+.panel-section-footer-button:focus > div {
+  transform: translateY(-8px);
 }
 
 .panel-section-footer-button:hover,
@@ -1394,21 +1526,34 @@ body,
   outline-offset: -2px;
 }
 
-.panel-section-footer-button > div {
-  text-align: center;
-  transition: transform 100ms ease;
+/* Submenu styling */
+.submenu-content {
+  position: absolute;
+  transform: translateX(200px);
+  top: 0;
+  left: 0;
+  transition: transform 0.2s ease-in-out;
 }
 
-.panel-section-footer-button:hover > div,
-.panel-section-footer-button:focus > div {
-  transform: translateY(-6px);
+.submenu-content.visible {
+  transform: translateX(0);
 }
 
-.panel-section-footer-button .tooltip {
-  text-align: center;
-  color: var(--secondary-text-color);
-  transition: all 200ms ease;
-  opacity: 0;
+.submenu-item {
+  position: relative;
+  justify-content: space-between;
+}
+
+.submenu-arrow {
+  margin-left: auto;
+  opacity: 0.7;
+  font-size: 10px;
+}
+
+.back-button {
+  font-weight: 500;
+  border-bottom: 1px solid var(--primary-border-color);
+  margin-bottom: 4px;
 }
 
 /* Share button styling */
@@ -1454,6 +1599,11 @@ body,
   width: 90%;
   z-index: 1000;
   position: relative;
+  border: 1px solid var(--primary-border-color);
+}
+
+[data-theme="dark"] .share-dialog {
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
 /* Close X button for dialog */
@@ -1718,18 +1868,17 @@ body,
 
 /* Resize functionality */
 #resize-toggle-button {
-  position: absolute;
-  top: 6px;
-  right: 70px;
-  height: 30px;
-  width: 30px;
+  position: static;
+  height: 32px;
+  width: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: none;
   border: none;
-  border-radius: 40px;
+  border-radius: 4px;
   cursor: pointer;
+  transition: background-color 0.2s;
 }
 
 #resize-toggle-button:hover {
@@ -1738,14 +1887,15 @@ body,
 
 #resize-toggle-button:focus-visible {
   outline: 2px solid var(--primary-outline-color);
+  outline-offset: -2px;
 }
 
 #resize-toggle-button.active {
-  color: #a52a2a;
+  color: var(--primary-highlight-color);
 }
 
 #resize-toggle-button.active svg {
-  fill: #a52a2a;
+  fill: var(--primary-highlight-color);
 }
 
 #resize-handle {
@@ -1868,9 +2018,29 @@ body,
 }
 
 #confirm-delete-dialog.visible,
-#confirm-delete-all-dialog.visible {
+#confirm-delete-all-dialog.visible,
+#confirm-import-dialog.visible,
+#confirm-import-merge-dialog.visible {
   opacity: 1;
   pointer-events: auto;
+}
+
+/* Import confirmation dialogs styling */
+#confirm-import-dialog,
+#confirm-import-merge-dialog {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5); /* Semi-transparent background */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  opacity: 0;
+  transition: opacity 0.2s ease-in-out;
+  pointer-events: none;
 }
 
 /* Inner Content Box for Confirmation Dialogs */
@@ -1938,4 +2108,362 @@ body,
 
 .dialog-actions .confirm-btn {
   /* Styles for confirm button (danger) already exist, leveraging existing variables */
+}
+
+/* Added for success animation feedback */
+.flash-success {
+  animation: success-flash 0.75s ease-out;
+}
+
+@keyframes success-flash {
+  0% {
+    background-color: rgba(76, 175, 80, 0.5); /* Green flash */
+    box-shadow: 0 0 5px rgba(76, 175, 80, 0.7);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: none;
+  }
+}
+
+/* Ensure it applies nicely to the header name */
+.header-name.flash-success {
+  border-radius: 3px; /* Optional: slightly rounded corners for the flash */
+  padding: 0 4px; /* Optional: add slight padding during flash */
+  margin: 0 -4px; /* Optional: counteract padding */
+}
+
+.search-options {
+  display: flex;
+  position: absolute;
+  right: 12px;
+  gap: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.search-option {
+  display: flex;
+  align-items: center;
+  font-size: 0.8em;
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 0; /* Added padding to increase the height of each option */
+}
+
+.search-option input {
+  margin-right: 2px;
+}
+
+.search-option span {
+  margin-left: 2px;
+}
+
+#searchOptionsToggle {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  cursor: pointer;
+  padding: 5px;
+  border-radius: 50%;
+  transition: all 0.2s ease-in-out;
+  z-index: 2;
+}
+
+#searchOptionsToggle:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+#searchOptionsToggle .icon {
+  display: block;
+}
+
+#searchOptionsContainer {
+  position: absolute;
+  right: 42px; /* Position to the left of the filter icon */
+  top: 50%;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  overflow: hidden;
+  transition: all 0.2s ease-in-out;
+  z-index: 1;
+  background-color: var(--primary-surface-color);
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  padding: 4px 8px;
+}
+
+#searchOptionsContainer.collapsed {
+  width: 0;
+  opacity: 0;
+  padding: 0;
+  pointer-events: none;
+}
+
+#searchOptionsContainer.expanded {
+  width: 130px;
+  height: 20px;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.search-options {
+  display: flex;
+  gap: 8px;
+  padding: 4px 0; /* Added padding to increase the height */
+}
+
+.search-option {
+  display: flex;
+  align-items: center;
+  font-size: 0.8em;
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 0; /* Added padding to increase the height of each option */
+}
+
+/* History controls */
+#history-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 4px;
+}
+
+#history-controls button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px;
+  opacity: 0.8;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+}
+
+#history-controls button:hover:not(:disabled) {
+  background-color: var(--secondary-surface-color);
+  opacity: 1;
+}
+
+#history-controls button:focus-visible {
+  outline: 2px solid var(--primary-outline-color);
+  outline-offset: -2px;
+}
+
+#history-controls button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+#history-controls .icon {
+  width: 16px;
+  height: 16px;
+  fill: var(--primary-text-color);
+}
+
+/* Make sure main menu is positioned correctly with history controls */
+#main-menu {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 20; /* Ensure menu appears above other elements */
+}
+
+#main-menu-button.active {
+  background-color: var(--primary-accent-darker);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+#main-menu-button.active svg {
+  transform: rotate(90deg);
+}
+
+[data-theme="dark"] #main-menu-button.active {
+  background-color: #373b44;
+}
+
+#theme-selector-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+#theme-selector {
+  background-color: var(--secondary-surface-color);
+  color: var(--primary-text-color);
+  border: 1px solid var(--primary-border-color);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  min-width: 80px;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg fill='gray' height='24' viewBox='0 0 24 24' width='24' xmlns='http://www.w3.org/2000/svg'><path d='M7 10l5 5 5-5z'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 4px center;
+  background-size: 12px;
+  padding-right: 20px;
+}
+
+#theme-selector:focus {
+  outline: 2px solid var(--primary-outline-color);
+  outline-offset: -2px;
+}
+
+#theme-selector option {
+  color: var(--primary-text-color);
+  background-color: var(--primary-surface-color);
+  padding: 4px;
+}
+
+[data-theme="dark"] #theme-selector {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  background-image: url("data:image/svg+xml;utf8,<svg fill='white' height='24' viewBox='0 0 24 24' width='24' xmlns='http://www.w3.org/2000/svg'><path d='M7 10l5 5 5-5z'/></svg>");
+}
+
+[data-theme="dark"] #theme-selector option {
+  background-color: #333;
+  color: white;
+}
+
+/* Fix for Firefox which has different option styling */
+@-moz-document url-prefix() {
+  #theme-selector {
+    text-indent: 0;
+    text-overflow: ellipsis;
+    padding-right: 20px;
+  }
+  
+  [data-theme="dark"] #theme-selector option {
+    background-color: #333 !important;
+    color: white !important;
+  }
+}
+
+/* Fix for WebKit browsers like Chrome */
+@media screen and (-webkit-min-device-pixel-ratio: 0) {
+  #theme-selector option {
+    background-color: var(--primary-surface-color);
+    color: var(--primary-text-color);
+  }
+  
+  [data-theme="dark"] #theme-selector option {
+    background-color: #333;
+    color: white;
+  }
+}
+
+/* Light mode improvements - add more contrast */
+[data-theme="light"] {
+  /* Light theme inherits from CSS variables set by ThemeManager */
+  color-scheme: light;
+}
+
+/* Add specific contrast improvements for light mode elements */
+[data-theme="light"] #cookie-container {
+  background-color: var(--primary-surface-color);
+  border-color: var(--primary-border-color);
+}
+
+[data-theme="light"] #cookie-container .header {
+  border-color: var(--primary-border-color);
+  background-color: var(--primary-surface-color);
+}
+
+[data-theme="light"] #cookie-container .header:hover {
+  background-color: var(--secondary-surface-color);
+}
+
+[data-theme="light"] input[type="text"],
+[data-theme="light"] textarea,
+[data-theme="light"] select {
+  border-color: var(--primary-border-color);
+  background-color: #ffffff;
+  color: var(--primary-text-color);
+}
+
+[data-theme="light"] label {
+  color: var(--primary-text-color);
+}
+
+[data-theme="light"] #cookie-container li .header .header-name {
+  color: var(--primary-text-color);
+  font-weight: 600;
+}
+
+[data-theme="light"] #cookie-container li .header .header-extra-info {
+  color: var(--secondary-text-color);
+}
+
+[data-theme="light"] .advanced-toggle {
+  color: var(--primary-accent-color);
+}
+
+[data-theme="light"] .panel-section-footer {
+  background-color: var(--secondary-surface-color);
+  border-color: var(--primary-border-color);
+}
+
+[data-theme="light"] #main-menu-content .menu-item:hover {
+  background-color: var(--secondary-surface-color);
+}
+
+/* Path options styling */
+.path-options {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.path-option {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  margin-left: 5px;
+}
+
+/* Path checkbox styling */
+.path-checkbox-label {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+
+.path-checkbox-label input[type="checkbox"] {
+  margin-right: 6px;
+}
+
+.path-option-buttons {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.input-path {
+  width: 100%;
+}
+
+/* Add styles for the html element with data-theme */
+[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+html[data-theme="dark"] {
+  background-color: var(--primary-surface-color);
+  color: var(--primary-text-color);
+}
+
+html[data-theme="light"] {
+  background-color: var(--primary-surface-color);
+  color: var(--primary-text-color);
 }

@@ -14,6 +14,7 @@ import { ProfileManager } from '../lib/profileManager.js';
 import { ThemeHandler } from '../lib/themeHandler.js';
 import { CookieHandlerPopup } from './cookieHandlerPopup.js';
 import { ResizeHandler } from '../lib/resizeHandler.js';
+import { HistoryHandler } from '../lib/historyHandler.js';
 
 // Cookie sharing imports
 import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, createShareableProfilesUrl } from '../lib/sharing/cookieSharing.js';
@@ -32,12 +33,34 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
   let currentDomain = '';
   let allDomains = [];
   let selectedDomain = '';
+  // Flag to control including parent-domain cookies (persisted)
+  let includeParentCookies = false;
   let hasRequestedPermission = false; // Permission request tracking
   let showDeleteConfirmation = true; // Flag to control delete confirmation display
   let showDeleteAllConfirmation = true; // Flag to control delete all confirmation display
+  let showProfileLoadConfirmation = true; // Flag to control profile load confirmation display
   let activeDeleteCookieName = null; // Store the name of cookie being deleted
   let activeCopyMenu = null; // Store the active copy menu element
   
+  // Track the last refresh time to prevent too frequent updates
+  let lastCookieRefreshTimestamp = 0;
+  const MIN_REFRESH_INTERVAL = 1500; // Minimum 1.5 seconds between refreshes
+  
+  // Add a timestamp variable for cookie modification checks
+  let lastCookieModificationCheckTime = 0;
+  const MIN_MODIFICATION_CHECK_INTERVAL = 3000; // 3 seconds minimum between checks
+  
+  /**
+   * Helper function to find the Cookie object associated with a cookie element.
+   * @param {Element} cookieElement - The DOM element representing the cookie.
+   * @return {Cookie|null} The Cookie object or null if not found.
+   */
+  function findCookieObject(cookieElement) {
+    if (!cookieElement) return null;
+    const cookieId = cookieElement.dataset.cookieId;
+    return cookieId && loadedCookies[cookieId] ? loadedCookies[cookieId] : null;
+  }
+
   // Performance optimization: Add cookie caching
   const cookieCache = {
     domain: '',
@@ -67,6 +90,7 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
   let notificationTimeout;
 
   let cookieChangeTimeout = null;
+  let isProfileLoading = false; // Flag to prevent double refresh during profile loading
 
   const browserDetector = new BrowserDetector();
   const permissionHandler = new PermissionHandler(browserDetector);
@@ -82,6 +106,7 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     ? new CookieHandlerDevtools(browserDetector)
     : new CookieHandlerPopup(browserDetector);
   const profileManager = new ProfileManager(storageHandler, browserDetector);
+  const historyHandler = new HistoryHandler(browserDetector, cookieHandler);
 
   // Global flag to prevent multiple shared data import dialogs
   let sharedDataProcessingInProgress = false;
@@ -98,6 +123,20 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
   }
 
   document.addEventListener('DOMContentLoaded', async function () {
+    // Inject styles for domain‑settings gear and menu
+    const style = document.createElement('style');
+    style.textContent = `
+      .domain-selector-wrapper { position: relative; display: flex; align-items: center; }
+      #domain-settings-button { border: none; background: transparent; margin-right: 4px; cursor: pointer; }
+      #domain-settings-button .icon { width: 16px; height: 16px; fill: var(--primary-text-color); }
+      #domain-settings-menu { position: absolute; top: calc(100% + 4px); left: 0; background-color: white; border: 1px solid var(--primary-border-color); border-radius: 4px; padding: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.2); z-index: 1000; }
+      #domain-settings-menu.hidden { display: none; }
+      #domain-settings-menu label { font-size: 13px; color: var(--primary-text-color); display: flex; align-items: center; }
+      #domain-settings-menu input { margin-right: 6px; }
+      [data-theme="dark"] #domain-settings-menu { background-color: var(--menu-surface-color); border-color: var(--secondary-border-color); }
+    `;
+    document.head.appendChild(style);
+
     containerCookie = document.getElementById('cookie-container');
     notificationElement = document.getElementById('notification');
     pageTitleContainer = document.getElementById('pageTitle');
@@ -111,6 +150,16 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     
     // Load options before proceeding
     await optionHandler.loadOptions();
+
+    // Initialize animations right after options are loaded
+    handleAnimationsEnabled();
+
+    // --- BEGIN ADDITION: Load confirmation settings ---
+    showDeleteConfirmation = await storageHandler.getLocal('showDeleteConfirmation', true); // Default to true if not set
+    showDeleteAllConfirmation = await storageHandler.getLocal('showDeleteAllConfirmation', true); // Default to true if not set
+    showProfileLoadConfirmation = await storageHandler.getLocal('showProfileLoadConfirmation', true); // Default to true if not set
+    // --- END ADDITION ---
+
     await themeHandler.updateTheme();
     await handleAd();
     
@@ -119,6 +168,9 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       const resizeHandler = new ResizeHandler(storageHandler);
       await resizeHandler.initialize(document.body, pageTitleContainer);
     }
+    
+    // Set up the history buttons
+    setupHistoryButtons();
     
     // --- Popup-Specific Initializations --- 
     if (!isSidePanel()) {
@@ -183,7 +235,6 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
 
     // Initialize domain selector event listener (COMMON) - add only once
     if (domainSelector) { 
-      console.log('Adding domain selector change listener.');
       domainSelector.addEventListener('change', handleDomainSelectionChange);
       
       // Initialize domain selector dropdown (defer population)
@@ -217,19 +268,50 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
           copyOptionsButton(e);
           return;
         }
-        
-        // Handle click on delete button
-        if (e.target.closest('button.delete')) {
-          deleteButton(e);
+
+        // Handle click on delete button (in header or expando)
+        const deleteBtn = e.target.closest('button.delete');
+        if (deleteBtn) {
+          deleteButton(e); // deleteButton handles finding the cookie
           return;
         }
-        
+
+        // --- BEGIN ADDITION: Listener for SAVE button in expando ---
+        const saveBtn = e.target.closest('.expando .action-btns button.save');
+        if (saveBtn) {
+          // Find the form associated with this save button
+          const expando = saveBtn.closest('.expando');
+          if (expando) {
+            const form = expando.querySelector('form');
+            if (form) {
+              e.preventDefault(); // Prevent any default button action
+              saveCookieForm(form);
+            }
+          }
+          return;
+        }
+        // --- END ADDITION ---
+
         // Handle click on cookie header (expand/collapse)
-        if (e.target.closest('.header') && !e.target.closest('button')) {
+        // Ensure click wasn't on a button inside the header
+        if (e.target.closest('.header') && !e.target.closest('.header .btns button')) {
           expandCookie(e);
           return;
         }
       });
+
+      // --- BEGIN REMOVAL: General submit listener ---
+      // containerCookie.addEventListener('submit', (e) => {
+      //   e.preventDefault();
+      //   const form = e.target;
+      //   if (form.classList.contains('create')) {
+      //     document.getElementById('button-bar-add').classList.remove('active');
+      //     document.getElementById('button-bar-default').classList.add('active');
+      //   }
+      //   saveCookieForm(form);
+      //   return false;
+      // });
+      // --- END REMOVAL ---
     }
 
     /**
@@ -256,14 +338,32 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       e.preventDefault();
       
       const listElement = e.target.closest('li');
+      if (!listElement) {
+        console.error('Could not find parent li element for delete button');
+        sendNotification('Error finding cookie to delete', true);
+        return false;
+      }
+      
       const cookieName = listElement.dataset.name;
+      const cookieId = listElement.dataset.cookieId;
+      
+      if (!cookieName) {
+        console.error('Cookie element is missing name data attribute');
+        sendNotification('Error identifying cookie to delete', true);
+        return false;
+      }
       
       // Check if we should show the confirmation
       if (showDeleteConfirmation) {
-        showDeleteConfirmationDialog(cookieName);
+        showDeleteConfirmationDialog(cookieName, cookieId);
       } else {
         // Delete immediately if confirmations are disabled
-        removeCookie(cookieName);
+        // Pass the cookieId to ensure exact cookie deletion
+        removeCookie({cookieId: cookieId, name: cookieName}, null, (result) => {
+          if (!result) {
+            console.warn(`Potential issues deleting cookie: ${cookieName}`);
+          }
+        });
       }
       
       return false;
@@ -272,10 +372,14 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     /**
      * Shows the delete confirmation dialog
      * @param {string} cookieName Name of the cookie to delete
+     * @param {string} cookieId ID of the cookie to delete
      */
-    function showDeleteConfirmationDialog(cookieName) {
-      // Store the cookie name for use when confirmed
-      activeDeleteCookieName = cookieName;
+    function showDeleteConfirmationDialog(cookieName, cookieId) {
+      // Store the cookie data for use when confirmed
+      activeDeleteCookieName = {
+        name: cookieName,
+        cookieId: cookieId
+      };
       
       // Check if template exists
       const templateEl = document.getElementById('tmp-confirm-delete');
@@ -309,16 +413,20 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
         closeDeleteConfirmationDialog();
       });
       
-      confirmButton.addEventListener('click', () => {
+      confirmButton.addEventListener('click', async () => {
         // Update the setting if checkbox is checked
         if (dontShowAgainCheckbox.checked) {
           showDeleteConfirmation = false;
           // Save this preference to storage
-          storageHandler.setLocal('showDeleteConfirmation', false);
+          await storageHandler.setLocal('showDeleteConfirmation', false);
         }
         
-        // Delete the cookie
-        removeCookie(activeDeleteCookieName);
+        // Delete the cookie with error handling
+        removeCookie(activeDeleteCookieName, null, (result) => {
+          if (!result) {
+            console.warn(`Potential issues deleting cookie: ${typeof activeDeleteCookieName === 'object' ? activeDeleteCookieName.name : activeDeleteCookieName}`);
+          }
+        });
         
         // Close the dialog
         closeDeleteConfirmationDialog();
@@ -367,104 +475,168 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
           closeDeleteAllConfirmationDialog();
         }
         
+        // Check for import dialogs - removed since they handle their own Escape key events
+        
         // Close any open copy menus
         closeCopyOptionsMenu();
       }
     }
     
     /**
-     * Handles clicks on the copy options button
-     * @param {Event} e Click event
-     * @return {false} returns false to prevent click event propagation
+     * Handles clicks on the copy options button for a cookie.
+     * Toggles the copy menu, sets up copy actions, and manages closing.
      */
     function copyOptionsButton(e) {
-      e.preventDefault();
-      e.stopPropagation();
-      
-      // Close any open menu first
+      e.stopPropagation(); // Prevent event bubbling
+      const button = e.target.closest('button.copy-options-button');
+      const cookieElement = button.closest('.cookie');
+      const cookieId = cookieElement ? cookieElement.dataset.cookieId : null;
+      const cookieObj = cookieId ? loadedCookies[cookieId] : null;
+
+      if (!cookieElement || !cookieObj) {
+        console.error('Could not find cookie element or object for copy action.');
+        return;
+      }
+
+      const menu = cookieElement.querySelector('.copy-options-menu');
+      if (!menu) {
+        console.error('Could not find copy options menu element.');
+        return;
+      }
+
+      const isVisible = menu.style.display === 'block';
+
+      // Always close any currently active menu first
       closeCopyOptionsMenu();
       
-      const buttonElement = e.target.closest('button');
-      const listElement = buttonElement.closest('li');
-      const cookieName = listElement.dataset.name;
-      
-      // Get the cookie data
-      const cookieId = Object.keys(loadedCookies).find(id => 
-        loadedCookies[id].cookie.name === cookieName
-      );
-      
-      if (!cookieId || !loadedCookies[cookieId]) {
-        return false;
-      }
-      
-      const cookie = loadedCookies[cookieId].cookie;
-      
-      // Get the copy options menu from the button's parent container
-      const copyMenu = buttonElement.closest('.copy-options-container').querySelector('.copy-options-menu');
-      if (!copyMenu) {
-        return false;
-      }
-      
-      // Show the menu
-      copyMenu.style.display = 'block';
-      activeCopyMenu = copyMenu;
-      
-      // Add click handlers to the menu buttons
-      const copyWholeButton = copyMenu.querySelector('.copy-cookie');
-      const copyValueButton = copyMenu.querySelector('.copy-value');
-      
-      if (copyWholeButton) {
-        copyWholeButton.addEventListener('click', () => {
-          // Format the cookie as JSON and copy
-          const cookieJson = JSON.stringify(cookie, null, 2);
-          copyText(cookieJson);
-          sendNotification('Copied cookie to clipboard', false);
+      if (!isVisible) {
+        // Show the menu
+        menu.style.display = 'block';
+        activeCopyMenu = menu; // Set this menu as active
+
+        // --- Add listeners for copy actions inside THIS specific menu ---
+        const copyNameBtn = menu.querySelector('.copy-name');
+        const copyValueBtn = menu.querySelector('.copy-value');
+        const copyJsonBtn = menu.querySelector('.copy-cookie');
+
+        const copyNameHandler = async (e) => {
+          e.stopPropagation();
+          // Get the cookie directly from the object we already found
+          const cookieName = cookieObj?.cookie?.name;
+          
+          console.log('Attempting to copy cookie name:', cookieName);
+          
+          if (cookieName !== undefined && cookieName !== null) {
+            const success = await copyText(cookieName);
+            if (success) {
+              sendNotification('Copied cookie name to clipboard', false);
+              if (cookieObj && typeof cookieObj.showSuccessAnimationOnButton === 'function') {
+                cookieObj.showSuccessAnimationOnButton('button.copy-options-button');
+              }
+            } else {
+              sendNotification('Failed to copy cookie name', true);
+            }
+          } else {
+            sendNotification('Failed to copy: cookie name is empty', true);
+          }
           closeCopyOptionsMenu();
-        });
-      }
-      
-      if (copyValueButton) {
-        copyValueButton.addEventListener('click', () => {
-          // Copy just the value
-          copyText(cookie.value);
-          sendNotification('Copied cookie value to clipboard', false);
+        };
+
+        const copyValueHandler = async (e) => {
+          e.stopPropagation();
+          // Get the cookie directly from the object we already found
+          const cookieValue = cookieObj?.cookie?.value;
+          
+          console.log('Attempting to copy cookie value:', cookieValue);
+          
+          if (cookieValue !== undefined && cookieValue !== null) {
+            const success = await copyText(cookieValue);
+            if (success) {
+              sendNotification('Copied cookie value to clipboard', false);
+              if (cookieObj && typeof cookieObj.showSuccessAnimationOnButton === 'function') {
+                cookieObj.showSuccessAnimationOnButton('button.copy-options-button');
+              }
+            } else {
+              sendNotification('Failed to copy cookie value', true);
+            }
+          } else {
+            sendNotification('Failed to copy: cookie value is empty', true);
+          }
           closeCopyOptionsMenu();
-        });
-      }
-      
-      // Handle clicks outside to close
+        };
+
+        const copyJsonHandler = async (e) => {
+          e.stopPropagation();
+          // Get the cookie directly from the object we already found
+          const cookie = cookieObj?.cookie;
+          
+          if (cookie) {
+            console.log('Attempting to copy whole cookie:', cookie);
+            const json = JSON.stringify(cookie, null, 2);
+            const success = await copyText(json);
+            if (success) {
+              sendNotification('Copied whole cookie (JSON) to clipboard', false);
+              if (cookieObj && typeof cookieObj.showSuccessAnimationOnButton === 'function') {
+                cookieObj.showSuccessAnimationOnButton('button.copy-options-button');
+              }
+            } else {
+              sendNotification('Failed to copy cookie JSON', true);
+            }
+          } else {
+            sendNotification('Failed to copy: cookie object is empty', true);
+          }
+          closeCopyOptionsMenu();
+        };
+
+        // Remove any existing listeners first to prevent duplicates
+        if (copyNameBtn) {
+          copyNameBtn.removeEventListener('click', copyNameBtn._copyHandler);
+          copyNameBtn._copyHandler = copyNameHandler;
+          copyNameBtn.addEventListener('click', copyNameHandler);
+        }
+        
+        if (copyValueBtn) {
+          copyValueBtn.removeEventListener('click', copyValueBtn._copyHandler);
+          copyValueBtn._copyHandler = copyValueHandler;
+          copyValueBtn.addEventListener('click', copyValueHandler);
+        }
+        
+        if (copyJsonBtn) {
+          copyJsonBtn.removeEventListener('click', copyJsonBtn._copyHandler);
+          copyJsonBtn._copyHandler = copyJsonHandler;
+          copyJsonBtn.addEventListener('click', copyJsonHandler);
+        }
+
+        // Add listener to close when clicking outside
       document.addEventListener('click', handleClickOutside);
-      
-      return false;
+      }
     }
     
     /**
-     * Closes the copy options menu
+     * Closes the currently active copy options menu, if any.
      */
     function closeCopyOptionsMenu() {
       if (activeCopyMenu) {
-        // Remove event listener
+        activeCopyMenu.style.display = 'none';
+        // Remove the generic outside click listener when closing
         document.removeEventListener('click', handleClickOutside);
-        
-        // Hide with animation then remove
-        activeCopyMenu.classList.remove('visible');
-        
-        setTimeout(() => {
-          if (activeCopyMenu.parentNode) {
-            activeCopyMenu.parentNode.removeChild(activeCopyMenu);
-          }
           activeCopyMenu = null;
-        }, 200);
       }
     }
     
     /**
-     * Handles clicks outside the active menu
-     * @param {Event} e Click event
+     * Handles clicks outside the active copy menu to close it.
      */
     function handleClickOutside(e) {
-      if (activeCopyMenu && !activeCopyMenu.contains(e.target)) {
+      if (activeCopyMenu) {
+        // Find the button associated with the active menu
+        const parentCookie = activeCopyMenu.closest('.cookie');
+        const toggleButton = parentCookie ? parentCookie.querySelector('button.copy-options-button') : null;
+
+        // Close if the click is outside the menu AND outside its toggle button
+        if (!activeCopyMenu.contains(e.target) && (!toggleButton || !toggleButton.contains(e.target))) {
         closeCopyOptionsMenu();
+        }
       }
     }
 
@@ -476,12 +648,16 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     function saveCookieForm(form) {
       const isCreateForm = form.classList.contains('create');
 
+      // Find the parent LI element
+      const liElement = form.closest('li.cookie');
+
       const id = form.dataset.id;
       const name = form.querySelector('input[name="name"]').value;
       const value = form.querySelector('textarea[name="value"]').value;
 
       let domain;
       let path;
+      let pathOption = 'default'; // Default option is root path
       let expiration;
       let sameSite;
       let hostOnly;
@@ -492,25 +668,56 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       if (!isCreateForm) {
         domain = form.querySelector('input[name="domain"]').value;
         path = form.querySelector('input[name="path"]').value;
+        
+        // Path option is always 'custom' for edit form since we removed the radio buttons
+        pathOption = 'custom';
+        
         expiration = form.querySelector('input[name="expiration"]').value;
         sameSite = form.querySelector('select[name="sameSite"]').value;
         hostOnly = form.querySelector('input[name="hostOnly"]').checked;
         session = form.querySelector('input[name="session"]').checked;
         secure = form.querySelector('input[name="secure"]').checked;
         httpOnly = form.querySelector('input[name="httpOnly"]').checked;
+      } else {
+        // For the create form, check if custom path is enabled
+        const customPathToggle = form.querySelector('#custom-path-toggle');
+        path = form.querySelector('input[name="path"]')?.value || '/';
+        
+        if (customPathToggle && customPathToggle.checked) {
+          // If custom path is enabled, get the path option from radio buttons
+          const pathDefaultRadio = form.querySelector('input[name="pathOption"][value="default"]');
+          const pathCurrentRadio = form.querySelector('input[name="pathOption"][value="current"]');
+          const pathCustomRadio = form.querySelector('input[name="pathOption"][value="custom"]');
+          
+          if (pathDefaultRadio && pathDefaultRadio.checked) {
+            pathOption = 'default';
+          } else if (pathCurrentRadio && pathCurrentRadio.checked) {
+            pathOption = 'current';
+          } else if (pathCustomRadio && pathCustomRadio.checked) {
+            pathOption = 'custom';
+          }
+        } else {
+          // If custom path is not enabled, always use default (root) path
+          pathOption = 'default';
+          path = '/';
+        }
       }
+      
       saveCookie(
         id,
         name,
         value,
         domain,
         path,
+        pathOption,
         expiration,
         sameSite,
         hostOnly,
         session,
         secure,
         httpOnly,
+        null, // Placeholder for onComplete callback if needed later
+        liElement // Pass the LI element reference
       );
 
       if (form.classList.contains('create')) {
@@ -548,12 +755,15 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
      * @param {string} value Value of the cookie.
      * @param {string} domain
      * @param {string} path
+     * @param {string} pathOption 'default', 'current', or 'custom'
      * @param {string} expiration
      * @param {string} sameSite
      * @param {boolean} hostOnly
      * @param {boolean} session
      * @param {boolean} secure
      * @param {boolean} httpOnly
+     * @param {function} [onComplete] Optional callback function(error, savedCookie)
+     * @param {Element} [liElement] Optional reference to the cookie's LI element
      */
     function saveCookie(
       id,
@@ -561,19 +771,23 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       value,
       domain,
       path,
+      pathOption,
       expiration,
       sameSite,
       hostOnly,
       session,
       secure,
       httpOnly,
+      onComplete,
+      liElement
     ) {
-      
-
       const cookieContainer = loadedCookies[id];
       let cookie = cookieContainer ? cookieContainer.cookie : null;
       let oldName;
       let oldHostOnly;
+      
+      // Store the original cookie for history tracking (deep clone to avoid reference issues)
+      const originalCookie = cookie ? JSON.parse(JSON.stringify(cookie)) : null;
 
       if (cookie) {
         oldName = cookie.name;
@@ -592,14 +806,21 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
           }
         }
         
-        if (path === undefined) {
+        // Handle path based on pathOption
+        if (pathOption === 'default' || pathOption === undefined) {
+          // Default to root path
+          cookie.path = '/';
+        } else if (pathOption === 'current') {
+          // Use current URL path
           const url = new URL(getCurrentTabUrl());
           if (url && url.pathname) {
-            path = url.pathname;
-            cookie.path = path;
+            cookie.path = url.pathname;
           } else {
             cookie.path = '/';
           }
+        } else if (pathOption === 'custom') {
+          // Use custom path if provided, otherwise default to root
+          cookie.path = path || '/';
         }
         
         // Set some sensible defaults for new cookies
@@ -628,9 +849,17 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       if (domain !== undefined) {
         cookie.domain = domain;
       }
-      if (path !== undefined) {
+      
+      // For existing cookies being edited, apply path based on pathOption
+      if (cookie.id) { // This is an existing cookie
+        if (path !== undefined) {
+          cookie.path = path;
+        }
+      } else if (path !== undefined && pathOption === 'custom') {
+        // For new cookies with custom path
         cookie.path = path;
       }
+      
       if (sameSite !== undefined) {
         cookie.sameSite = sameSite;
       }
@@ -660,57 +889,145 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
         cookie.expirationDate = null;
       } else {
         cookie.expirationDate = new Date(expiration).getTime() / 1000;
-        if (!cookie.expirationDate) {
-          // Reset it to null because on safari it is NaN and causes failures.
-          cookie.expirationDate = null;
-          cookie.session = true;
-        }
       }
 
-      if (oldName !== name || oldHostOnly !== hostOnly) {
-        cookieHandler.removeCookie(oldName, getCurrentTabUrl(), function () {
-          cookieHandler.saveCookie(
-            cookie,
-            getCurrentTabUrl(),
-            function (error, cookie) {
-              if (error) {
-                sendNotification(error, true);
-                return;
+      const urlToUse = getCurrentTabUrl();
+      
+      // Get a deep copy of the final cookie state to record in history
+      const newCookieState = JSON.parse(JSON.stringify(cookie));
+
+      // Using promise approach for better flow control
+      function performSave() {
+        return new Promise((resolve, reject) => {
+          // We need the original path from the cookie to check if it changed
+          const oldPath = originalCookie ? originalCookie.path : null;
+          const newPath = cookie.path;
+          const pathChanged = oldPath && newPath && oldPath !== newPath;
+          
+          // Check if the name has changed or the path has changed
+          if (oldName !== name || pathChanged) {
+            // Either name or path has changed - we need to delete the old cookie first
+            
+            // Ensure we're using the original cookie's path in the URL when removing
+            let urlWithPath = urlToUse;
+            if (originalCookie && originalCookie.path) {
+              try {
+                const oldPath = originalCookie.path;
+                const urlObj = new URL(urlToUse);
+                urlWithPath = `${urlObj.protocol}//${urlObj.host}${oldPath}`;
+              } catch (e) {
+                console.error('Error building URL with path for cookie deletion:', e);
               }
-              if (browserDetector.isSafari()) {
-                onCookiesChanged();
-              }
-              if (cookieContainer) {
-                cookieContainer.showSuccessAnimation();
-              }
-              
-              // Check if cookies have been modified from loaded profile
-              checkIfCookiesModified();
-            },
-          );
-        });
-      } else {
-        // Should probably put in a function to prevent duplication
-        cookieHandler.saveCookie(
-          cookie,
-          getCurrentTabUrl(),
-          function (error, cookie) {
-            if (error) {
-              sendNotification(error, true);
-              return;
-            }
-            if (browserDetector.isSafari()) {
-              onCookiesChanged();
-            }
-            if (cookieContainer) {
-              cookieContainer.showSuccessAnimation();
             }
             
-            // Check if cookies have been modified from loaded profile
-            checkIfCookiesModified();
-          },
-        );
+            cookieHandler.removeCookie(oldName, urlWithPath, () => {
+              // After deleting old cookie, save the new one
+              cookieHandler.saveCookie(cookie, urlToUse, (error, savedCookie) => {
+              if (error) {
+                  reject(error);
+                  return;
+                }
+                
+                // Clear to refresh on next load
+                cookieCache.clear();
+                
+                // Record this operation in history
+                if (originalCookie) {
+                  // This is an edit of an existing cookie
+                  historyHandler.recordOperation('edit', originalCookie, newCookieState, urlToUse);
+                  } else {
+                  // This is a new cookie creation
+                  historyHandler.recordOperation('create', null, newCookieState, urlToUse);
+                }
+                updateHistoryButtons();
+                
+                resolve(savedCookie);
+              });
+        });
+      } else {
+            // No name or path change, just save the cookie
+            cookieHandler.saveCookie(cookie, urlToUse, (error, savedCookie) => {
+            if (error) {
+                reject(error);
+                return;
+              }
+              
+              // Clear to refresh on next load
+              cookieCache.clear();
+              
+              // Record this operation in history
+              if (originalCookie) {
+                // This is an edit of an existing cookie
+                historyHandler.recordOperation('edit', originalCookie, newCookieState, urlToUse);
+            } else {
+                // This is a new cookie creation
+                historyHandler.recordOperation('create', null, newCookieState, urlToUse);
+              }
+              updateHistoryButtons();
+              
+              resolve(savedCookie);
+            });
+          }
+        });
       }
+
+      performSave()
+        .then(savedCookie => {
+          // If saving was successful and this is for an existing cookie
+          if (cookieContainer) {
+            // Update the existing cookie with the saved cookie
+            cookieContainer.cookie = savedCookie;
+            
+            // If we have the HTML element, update it directly
+            if (liElement) {
+              cookieContainer.updateHtml(savedCookie, liElement);
+              cookieContainer.showSuccessAnimation(liElement);
+                } else {
+              // Otherwise find the element by ID
+              const element = document.getElementById(id);
+              if (element) {
+                cookieContainer.updateHtml(savedCookie, element);
+                cookieContainer.showSuccessAnimation(element);
+              }
+            }
+            
+            // Inform the user of success
+            sendNotification('Cookie saved successfully.', false);
+            
+            // Call the onComplete callback if provided
+            if (onComplete) {
+              onComplete(null, savedCookie);
+            }
+      } else {
+            // This is a new cookie
+            sendNotification('Cookie created successfully.', false);
+            
+            if (onComplete) {
+              onComplete(null, savedCookie);
+            }
+            
+            // Add the new cookie to loadedCookies if it wasn't added elsewhere
+            if (savedCookie && savedCookie.name === name) {
+              const cookieId = Cookie.hashCode(savedCookie);
+              if (!loadedCookies[cookieId]) {
+                loadedCookies[cookieId] = new Cookie(cookieId, savedCookie, optionHandler);
+                console.log(`Added new cookie to loadedCookies: ${name}`);
+              }
+            }
+          }
+          
+          // Check if cookies have been modified
+          setTimeout(() => {
+            checkIfCookiesModified();
+          }, 50); // Small delay to ensure all other operations completed
+        })
+        .catch(error => {
+          console.error('Error saving cookie:', error);
+          sendNotification('Failed to save cookie: ' + error, true);
+          if (onComplete) {
+            onComplete(error, null);
+          }
+        });
     }
 
     document.getElementById('create-cookie').addEventListener('click', () => {
@@ -718,8 +1035,6 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       if (disableButtons || isAnimating) { 
         return;
       }
-
-      // REMOVED: isAnimating = false; - This was potentially causing issues
       
       // Disable interaction during animation
       disableButtons = true;
@@ -745,6 +1060,14 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       // Force a reflow to apply the notransition class
       void document.body.offsetHeight;
       
+      // If there's a pending cookie change refresh, clear it to prevent
+      // the add cookie form from being replaced by the cookie list
+      if (cookieChangeTimeout !== null) {
+        clearTimeout(cookieChangeTimeout);
+        cookieChangeTimeout = null;
+        console.log('[create-cookie] Cleared pending cookie refresh to prevent UI flickering');
+      }
+      
       // Prepare for animation with a short delay
       setTimeout(() => {
         // Re-enable transitions just before animation starts
@@ -763,6 +1086,67 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
             // Focus the name field after transition completes
             const nameField = document.getElementById('name-create');
             if (nameField) nameField.focus();
+            
+            // Setup custom path checkbox and path options
+            const pathOptions = document.querySelector('.path-options');
+            const pathInput = document.querySelector('.input-path');
+            const customPathToggle = document.getElementById('custom-path-toggle');
+            const defaultRadio = document.querySelector('.input-path-default');
+            const currentRadio = document.querySelector('.input-path-current');
+            const customRadio = document.querySelector('.input-path-custom');
+            
+            if (pathInput && customPathToggle && defaultRadio && currentRadio && customRadio) {
+              // Set default state - path is "/"
+              pathInput.value = "/";
+              defaultRadio.checked = true;
+              
+              // Add event listener for the custom path checkbox
+              customPathToggle.addEventListener('change', () => {
+                if (customPathToggle.checked) {
+                  pathOptions.style.display = 'block';
+                  
+                  // Update the path input value based on the selected radio button
+                  if (defaultRadio.checked) {
+                    pathInput.value = "/";
+                    pathInput.disabled = true;
+                  } else if (currentRadio.checked) {
+                    const url = new URL(getCurrentTabUrl());
+                    pathInput.value = url.pathname || "/";
+                    pathInput.disabled = true;
+                  } else if (customRadio.checked) {
+                    pathInput.value = "";
+                    pathInput.disabled = false;
+                    pathInput.focus();
+                  }
+                } else {
+                  pathOptions.style.display = 'none';
+                }
+              });
+              
+              // Add event listeners for radio buttons
+              defaultRadio.addEventListener('change', () => {
+                if (defaultRadio.checked) {
+                  pathInput.value = "/";
+                  pathInput.disabled = true;
+                }
+              });
+              
+              currentRadio.addEventListener('change', () => {
+                if (currentRadio.checked) {
+                  const url = new URL(getCurrentTabUrl());
+                  pathInput.value = url.pathname || "/";
+                  pathInput.disabled = true;
+                }
+              });
+              
+              customRadio.addEventListener('change', () => {
+                if (customRadio.checked) {
+                  pathInput.value = "";
+                  pathInput.disabled = false;
+                  pathInput.focus();
+                }
+              });
+            }
           },
           optionHandler.getAnimationsEnabled(),
         );
@@ -823,7 +1207,7 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
         if (dontShowAgainCheckbox.checked) {
           showDeleteAllConfirmation = false;
           // Save this preference to storage
-          storageHandler.setLocal('showDeleteAllConfirmation', false);
+          await storageHandler.setLocal('showDeleteAllConfirmation', false);
         }
         
         // Delete all cookies
@@ -869,19 +1253,64 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
         .getElementById('delete-all-cookies')
         .querySelector('use');
         
-      // Create an array of promises for cookie removal
-      const removalPromises = [];
+      // Store all cookies for history tracking before removal
+      const cookiesToDeleteDetails = [];
+      const originalCookiesForHistory = [];
+      const currentBaseUrl = getCurrentTabUrl(); // Get base URL once
+
       for (const cookieId in loadedCookies) {
         if (Object.prototype.hasOwnProperty.call(loadedCookies, cookieId)) {
-          const cookieName = loadedCookies[cookieId].cookie.name;
+          const cookieData = loadedCookies[cookieId].cookie;
+          // Store full original data for history
+          originalCookiesForHistory.push(JSON.parse(JSON.stringify(cookieData)));
+
+          // Store details needed for direct deletion
+          const detail = {
+            name: cookieData.name,
+            domain: cookieData.domain,
+            path: cookieData.path || '/',
+            storeId: cookieData.storeId
+          };
+
+          // Construct specific URL for this cookie's deletion
+          let urlForDelete = currentBaseUrl;
+          try {
+            const cleanDomain = detail.domain && detail.domain.startsWith('.') ? detail.domain.substring(1) : detail.domain;
+            const urlObj = new URL(currentBaseUrl);
+            if (cleanDomain) {
+              urlForDelete = `${urlObj.protocol}//${cleanDomain}${detail.path}`;
+            } else {
+              urlForDelete = `${urlObj.protocol}//${urlObj.host}${detail.path}`;
+            }
+          } catch (e) {
+            console.error('Error building URL for bulk delete:', e);
+            // Fallback URL construction
+            if (detail.domain) {
+              const cleanDomain = detail.domain.startsWith('.') ? detail.domain.substring(1) : detail.domain;
+              urlForDelete = `https://${cleanDomain}${detail.path}`;
+            } else {
+              urlForDelete = currentBaseUrl;
+            }
+          }
+          detail.url = urlForDelete; // Add the constructed URL to the details
+          cookiesToDeleteDetails.push(detail);
+        }
+      }
+        
+      // Create an array of promises for cookie removal
+      const removalPromises = [];
+      for (const detail of cookiesToDeleteDetails) {
           removalPromises.push(
             new Promise((resolve) => {
-              removeCookie(cookieName, null, () => {
-                resolve();
+            // Call cookieHandler.removeCookie directly, bypassing the wrapper
+            cookieHandler.removeCookie(detail.name, detail.url, detail.storeId, (result) => {
+              if (!result) {
+                console.warn(`Failed to delete cookie during bulk operation: ${detail.name} at ${detail.url}`);
+              }
+              resolve(); // Resolve promise even if deletion failed for one cookie
               });
             })
           );
-        }
       }
       
       // Wait for all cookies to be removed
@@ -889,6 +1318,12 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       
       // Reset loadedCookies to empty
       loadedCookies = {};
+      
+      // Record the bulk deletion in history if we have cookies data
+      if (originalCookiesForHistory.length > 0) {
+        historyHandler.recordOperation('deleteAll', originalCookiesForHistory, null, currentBaseUrl);
+        updateHistoryButtons();
+      }
       
       // Explicitly check if cookies have been modified after bulk deletion
       // This ensures profile state is updated when deleting all cookies
@@ -954,6 +1389,14 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       // Force a reflow to apply the notransition class
       void document.body.offsetHeight;
       
+      // If there's a pending cookie change refresh, clear it to prevent
+      // the import form from being replaced by the cookie list
+      if (cookieChangeTimeout !== null) {
+        clearTimeout(cookieChangeTimeout);
+        cookieChangeTimeout = null;
+        console.log('[import-cookies] Cleared pending cookie refresh to prevent UI flickering');
+      }
+      
       // Prepare for animation with a short delay
       setTimeout(() => {
         // Re-enable transitions just before animation starts
@@ -981,138 +1424,30 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     });
 
     document.getElementById('return-list-add').addEventListener('click', () => {
-      if (disableButtons) {
-        return;
-      }
-      
-      // Disable interaction during animation
+      if (disableButtons) return;
       disableButtons = true;
       
-      // Get the form to retrieve domain information
-      const form = containerCookie.querySelector('form');
-      // Get the stored domain from the form if available
-      const formStoredDomain = form && form.dataset && form.dataset.domain;
-      
-      // Update button bar state
-      document.getElementById('button-bar-add').classList.remove('active');
-      document.getElementById('button-bar-default').classList.add('active');
-      
-      // First pause any active CSS transitions
-      document.body.classList.add('notransition');
-      
-      // Force a reflow to apply the notransition class
-      void document.body.offsetHeight;
-      
-      // Prepare for animation with a short delay
+      // Pause CSS transitions for the animation
+      document.body.classList.add('notransition'); void document.body.offsetHeight;
       setTimeout(() => {
-        // Re-enable transitions just before animation starts
         document.body.classList.remove('notransition');
-      
-        // Use the stored domain if available
+        
+        // Use stored form domain if available
+        const form = containerCookie.querySelector('form');
+        const formStoredDomain = form?.dataset?.domain;
         if (formStoredDomain) {
-          // Ensure the domain selector is synchronized
+          // Sync domain selector and state
           if (domainSelector && formStoredDomain !== domainSelector.value) {
             domainSelector.value = formStoredDomain;
             selectedDomain = formStoredDomain;
           }
-          
-          // Get cookies for the selected domain
-          getCookiesForDomainWrapper(formStoredDomain, function(cookies) {
-            cookies = cookies.sort(sortCookiesByName);
-            
-            loadedCookies = {};
-            
-            if (cookies.length === 0) {
-              // Create the empty cookies message
-              const html = document
-                .importNode(document.getElementById('tmp-empty').content, true)
-                .querySelector('p');
-              
-              html.textContent = `No cookies found for domain: ${formStoredDomain}`;
-              
-              // Transition directly to the empty state
-              Animate.transitionPage(
-                containerCookie,
-                containerCookie.firstChild,
-                html,
-                'right',
-                () => {
-                  disableButtons = false;
-                },
-                optionHandler.getAnimationsEnabled()
-              );
-              return;
-            }
-            
-            // Create the cookie list
-            cookiesListHtml = document.createElement('ul');
-            cookiesListHtml.appendChild(generateSearchBar());
-            cookies.forEach(function (cookie) {
-              const id = Cookie.hashCode(cookie);
-              loadedCookies[id] = new Cookie(id, cookie, optionHandler);
-              cookiesListHtml.appendChild(loadedCookies[id].html);
-            });
-            
-            // Direct animation from the add form to the cookie list
-            Animate.transitionPage(
-              containerCookie,
-              containerCookie.firstChild,
-              cookiesListHtml,
-              'right',
-              () => {
-                disableButtons = false;
-              },
-              optionHandler.getAnimationsEnabled()
-            );
-          });
+          // Show cookies for selected domain
+          showCookiesForSelectedDomain(true)
+            .finally(() => { disableButtons = false; });
         } else {
-          // Default behavior - get all cookies
-          cookieHandler.getAllCookies(function (cookies) {
-            cookies = cookies.sort(sortCookiesByName);
-            
-            loadedCookies = {};
-            
-            if (cookies.length === 0) {
-              // Create the empty cookies message
-              const html = document
-                .importNode(document.getElementById('tmp-empty').content, true)
-                .querySelector('p');
-              
-              // Transition directly to the empty state
-              Animate.transitionPage(
-                containerCookie,
-                containerCookie.firstChild,
-                html,
-                'right',
-                () => {
-                  disableButtons = false;
-                },
-                optionHandler.getAnimationsEnabled()
-              );
-              return;
-            }
-            
-            // Create the cookie list
-            cookiesListHtml = document.createElement('ul');
-            cookiesListHtml.appendChild(generateSearchBar());
-            cookies.forEach(function (cookie) {
-              const id = Cookie.hashCode(cookie);
-              loadedCookies[id] = new Cookie(id, cookie, optionHandler);
-              cookiesListHtml.appendChild(loadedCookies[id].html);
-            });
-            
-            // Direct animation from the add form to the cookie list
-            Animate.transitionPage(
-              containerCookie,
-              containerCookie.firstChild,
-              cookiesListHtml,
-              'right',
-              () => {
-                disableButtons = false;
-              },
-              optionHandler.getAnimationsEnabled()
-            );
-          });
+          // Show cookies for current tab domain
+          showCookiesForTab(true)
+            .finally(() => { disableButtons = false; });
         }
       }, 30);
     });
@@ -1120,138 +1455,27 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     document
       .getElementById('return-list-import')
       .addEventListener('click', () => {
-        if (disableButtons) {
-          return;
-        }
-        
-        // Disable interaction during animation
+        if (disableButtons) return;
         disableButtons = true;
         
-        // Get the form to retrieve domain information
-        const form = containerCookie.querySelector('form');
-        // Get the stored domain from the form if available
-        const formStoredDomain = form && form.dataset && form.dataset.domain;
-        
-        // Update button bar state
-        document.getElementById('button-bar-import').classList.remove('active');
-        document.getElementById('button-bar-default').classList.add('active');
-        
-        // First pause any active CSS transitions
-        document.body.classList.add('notransition');
-        
-        // Force a reflow to apply the notransition class
-        void document.body.offsetHeight;
-        
-        // Prepare for animation with a short delay
+        // Pause CSS transitions for the animation
+        document.body.classList.add('notransition'); void document.body.offsetHeight;
         setTimeout(() => {
-          // Re-enable transitions just before animation starts
           document.body.classList.remove('notransition');
-        
-          // Use the stored domain if available
+          
+          // Use stored form domain if available
+          const form = containerCookie.querySelector('form');
+          const formStoredDomain = form?.dataset?.domain;
           if (formStoredDomain) {
-            // Ensure the domain selector is synchronized
             if (domainSelector && formStoredDomain !== domainSelector.value) {
               domainSelector.value = formStoredDomain;
               selectedDomain = formStoredDomain;
             }
-            
-            // Get cookies for the selected domain
-            getCookiesForDomainWrapper(formStoredDomain, function(cookies) {
-              cookies = cookies.sort(sortCookiesByName);
-              
-              loadedCookies = {};
-              
-              if (cookies.length === 0) {
-                // Create the empty cookies message
-                const html = document
-                  .importNode(document.getElementById('tmp-empty').content, true)
-                  .querySelector('p');
-                
-                html.textContent = `No cookies found for domain: ${formStoredDomain}`;
-                
-                // Transition directly to the empty state  
-                Animate.transitionPage(
-                  containerCookie,
-                  containerCookie.firstChild,
-                  html,
-                  'right',
-                  () => {
-                    disableButtons = false;
-                  },
-                  optionHandler.getAnimationsEnabled()
-                );
-                return;
-              }
-              
-              // Create the cookie list
-              cookiesListHtml = document.createElement('ul');
-              cookiesListHtml.appendChild(generateSearchBar());
-              cookies.forEach(function (cookie) {
-                const id = Cookie.hashCode(cookie);
-                loadedCookies[id] = new Cookie(id, cookie, optionHandler);
-                cookiesListHtml.appendChild(loadedCookies[id].html);
-              });
-              
-              // Direct animation from the import form to the cookie list
-              Animate.transitionPage(
-                containerCookie,
-                containerCookie.firstChild,
-                cookiesListHtml,
-                'right',
-                () => {
-                  disableButtons = false;
-                },
-                optionHandler.getAnimationsEnabled()
-              );
-            });
+            showCookiesForSelectedDomain(true)
+              .finally(() => { disableButtons = false; });
           } else {
-            // Default behavior - get all cookies
-            cookieHandler.getAllCookies(function (cookies) {
-              cookies = cookies.sort(sortCookiesByName);
-              
-              loadedCookies = {};
-              
-              if (cookies.length === 0) {
-                // Create the empty cookies message
-                const html = document
-                  .importNode(document.getElementById('tmp-empty').content, true)
-                  .querySelector('p');
-                
-                // Transition directly to the empty state  
-                Animate.transitionPage(
-                  containerCookie,
-                  containerCookie.firstChild,
-                  html,
-                  'right',
-                  () => {
-                    disableButtons = false;
-                  },
-                  optionHandler.getAnimationsEnabled()
-                );
-                return;
-              }
-              
-              // Create the cookie list
-              cookiesListHtml = document.createElement('ul');
-              cookiesListHtml.appendChild(generateSearchBar());
-              cookies.forEach(function (cookie) {
-                const id = Cookie.hashCode(cookie);
-                loadedCookies[id] = new Cookie(id, cookie, optionHandler);
-                cookiesListHtml.appendChild(loadedCookies[id].html);
-              });
-              
-              // Direct animation from the import form to the cookie list
-              Animate.transitionPage(
-                containerCookie,
-                containerCookie.firstChild,
-                cookiesListHtml,
-                'right',
-                () => {
-                  disableButtons = false;
-                },
-                optionHandler.getAnimationsEnabled()
-              );
-            });
+            showCookiesForTab(true)
+              .finally(() => { disableButtons = false; });
           }
         }, 30);
       });
@@ -1274,15 +1498,42 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     document
       .getElementById('save-create-cookie')
       .addEventListener('click', () => {
-        // Get the form to retrieve domain data
         const form = document.querySelector('form.create');
+        if (!form) return; // Should not happen
         
-        // First update the button bars
+        // --- Keep button bar update here for immediate visual feedback ---
         document.getElementById('button-bar-add').classList.remove('active');
         document.getElementById('button-bar-default').classList.add('active');
-        
-        // Then save the cookie
-        saveCookieForm(form);
+        // --- End button bar update ---
+
+        // Save the cookie and trigger return navigation on completion
+        saveCookieForm(form, (error, savedCookie) => {
+          if (!error) {
+            // Simulate clicking the return button to navigate back
+            // Use a small timeout to allow the save notification to potentially display first
+            setTimeout(() => {
+                const returnButton = document.getElementById('return-list-add');
+                if (returnButton) {
+                  returnButton.click();
+                } else {
+                  // Fallback: If button not found, refresh manually (less ideal)
+                  console.warn("Could not find #return-list-add, refreshing manually after save.");
+                  const domainToUse = form.dataset?.domain || selectedDomain;
+                  if (domainToUse) {
+                    showCookiesForSelectedDomain(true);
+                  } else {
+                    showCookiesForTab(true);
+                  }
+                }
+            }, 50); // Small delay
+          } else {
+             // Error is handled by saveCookie sending a notification
+             // Revert button bar if save failed?
+             console.log("Save failed, keeping user on add screen.");
+             document.getElementById('button-bar-add').classList.add('active');
+             document.getElementById('button-bar-default').classList.remove('active');
+          }
+        });
       });
 
     document
@@ -1344,10 +1595,28 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
           }
         }
         
+        // ADDED: Ensure 'cookies' is an array before iterating
+        if (!Array.isArray(cookies)) {
+            // If it's a single valid cookie object, wrap it in an array
+            if (cookies && typeof cookies === 'object' && cookies.name && cookies.value !== undefined) { // Check for name and value presence
+                 console.log("Import detected single cookie object, wrapping in array.");
+                 cookies = [cookies];
+            } else {
+                // If it's not an array and not a recognizable single cookie object, it's an invalid format
+                console.error("Parsed import data is not an array or a valid single cookie object:", cookies);
+                sendNotification('Imported data is not in a valid format (expected array of cookies).', true);
+                buttonIcon.setAttribute('href', '../sprites/solid.svg#file-import'); // Reset icon
+                return; // Stop processing
+          }
+        }
+        
         buttonIcon.setAttribute('href', '../sprites/solid.svg#check');
         
         // Get URL to use for cookie import
         const urlToUse = domainToUse ? `https://${domainToUse}/` : getCurrentTabUrl();
+        
+        // Store the imported cookies for history tracking
+        const importedCookies = [];
         
         let cookiesImported = 0;
         let cookiesTotal = cookies.length;
@@ -1356,28 +1625,55 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
         const updateProgress = () => {
           cookiesImported++;
           if (cookiesImported >= cookiesTotal) {
-            // Update button bar UI to back to main view
+            // --- Keep button bar update here for immediate visual feedback ---
             document.getElementById('button-bar-import').classList.remove('active');
             document.getElementById('button-bar-default').classList.add('active');
+            // --- End button bar update ---
             
-            // Handle any errors
+            // Record the import operation in history
+            if (importedCookies.length > 0) {
+              historyHandler.recordOperation('importCookies', null, importedCookies, urlToUse);
+              updateHistoryButtons();
+            }
+            
+            // Handle any errors (just notification)
             if (errorText) {
               sendNotification(errorText, true);
             } else {
               sendNotification(`${cookiesTotal} cookie${cookiesTotal !== 1 ? 's' : ''} imported successfully.`, false);
             }
             
+            // Check if cookies have been modified after the import
+            setTimeout(() => {
+              checkIfCookiesModified();
+            }, 100);
+            
             // Reset button icon after a delay
             setTimeout(() => {
-              buttonIcon.setAttribute('href', '../sprites/solid.svg#file-import');
+              const icon = document.getElementById('save-import-cookie')?.querySelector('use');
+              if (icon) {
+                 icon.setAttribute('href', '../sprites/solid.svg#file-import');
+              }
             }, 1500);
             
-            // Update view with the new cookies
+            // Simulate clicking the return button to navigate back
+            // Use a small timeout to allow the import notification to potentially display first
+            setTimeout(() => {
+                const returnButton = document.getElementById('return-list-import');
+                if (returnButton) {
+                  returnButton.click();
+                } else {
+                  // Fallback: If button not found, refresh manually (less ideal)
+                  console.warn("Could not find #return-list-import, refreshing manually after import.");
+                  const currentForm = document.querySelector('form.import'); // Get form again just in case
+                  const domainToUse = currentForm?.dataset?.domain || selectedDomain;
             if (domainToUse) {
               showCookiesForSelectedDomain(true);
             } else {
               showCookiesForTab(true);
             }
+                }
+            }, 50); // Small delay
           }
         };
         
@@ -1391,10 +1687,13 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
             cookie.sameSite = null;
           }
           
-          cookieHandler.saveCookie(cookie, urlToUse, (error, cookie) => {
+          cookieHandler.saveCookie(cookie, urlToUse, (error, savedCookie) => {
             if (error) {
               console.error('Error importing cookie:', error);
               errorText = 'Error importing one or more cookies';
+            } else if (savedCookie) {
+              // Add successfully imported cookie to the array for history tracking
+              importedCookies.push(JSON.parse(JSON.stringify(savedCookie)));
             }
             updateProgress();
           });
@@ -1402,22 +1701,52 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       });
 
     const mainMenuContent = document.querySelector('#main-menu-content');
-    document
-      .querySelector('#main-menu-button')
-      .addEventListener('click', function (e) {
-        mainMenuContent.classList.toggle('visible');
-      });
+    const mainMenuButton = document.querySelector('#main-menu-button');
+    
+    mainMenuButton.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      // Toggle rotation class on the button for animation effect
+      if (mainMenuContent.classList.contains('visible')) {
+        mainMenuButton.classList.remove('active');
+        
+        // Add a slight delay before hiding the menu
+        setTimeout(() => {
+          mainMenuContent.classList.remove('visible');
+        }, 50);
+      } else {
+        mainMenuButton.classList.add('active');
+        
+        // Add a slight delay before showing the menu for a smoother effect
+        setTimeout(() => {
+          mainMenuContent.classList.add('visible');
+          
+          // Position the menu dynamically relative to the button
+          const buttonRect = mainMenuButton.getBoundingClientRect();
+          mainMenuContent.style.top = `${buttonRect.bottom + 8}px`;
+          mainMenuContent.style.right = `${window.innerWidth - buttonRect.right}px`;
+        }, 50);
+      }
+    });
 
     document.addEventListener('click', function (e) {
       // Clicks in the main menu should not dismiss it.
       if (
-        document.querySelector('#main-menu').contains(e.target) ||
+        mainMenuButton.contains(e.target) ||
+        mainMenuContent.contains(e.target) ||
         !mainMenuContent.classList.contains('visible')
       ) {
         return;
       }
       
-      mainMenuContent.classList.remove('visible');
+      // First remove the active class from the button
+      mainMenuButton.classList.remove('active');
+      
+      // Then hide the menu with a slight delay
+      setTimeout(() => {
+        mainMenuContent.classList.remove('visible');
+      }, 50);
     });
 
     document.addEventListener('click', function (e) {
@@ -1486,6 +1815,143 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     (async function() {
     await checkForPendingSharedCookies();
     })();
+    
+    // Add event listeners for cookie value and JSON copying from Cookie class
+    document.addEventListener('cookie-copy-name', async function(e) {
+      const { cookieId, cookieName } = e.detail;
+      if (!cookieName && cookieName !== '') {
+        console.error('Cannot copy cookie name: name is empty or undefined');
+        sendNotification('Failed to copy: cookie name is empty', true);
+        return;
+      }
+      
+      console.log('Copying cookie name from custom event:', cookieName);
+      const success = await copyText(cookieName);
+      
+      if (success) {
+        sendNotification('Copied cookie name to clipboard', false);
+        // Show success animation if possible
+        const cookieObj = loadedCookies[cookieId];
+        if (cookieObj && typeof cookieObj.showSuccessAnimationOnButton === 'function') {
+          cookieObj.showSuccessAnimationOnButton('button.copy-options-button');
+        }
+      } else {
+        sendNotification('Failed to copy cookie name', true);
+      }
+    });
+    
+    document.addEventListener('cookie-copy-value', async function(e) {
+      const { cookieId, cookieValue } = e.detail;
+      if (!cookieValue && cookieValue !== '') {
+        console.error('Cannot copy cookie value: value is empty or undefined');
+        sendNotification('Failed to copy: cookie value is empty', true);
+        return;
+      }
+      
+      console.log('Copying cookie value from custom event:', cookieValue);
+      const success = await copyText(cookieValue);
+      
+      if (success) {
+        sendNotification('Copied cookie value to clipboard', false);
+        // Show success animation if possible
+        const cookieObj = loadedCookies[cookieId];
+        if (cookieObj && typeof cookieObj.showSuccessAnimationOnButton === 'function') {
+          cookieObj.showSuccessAnimationOnButton('button.copy-options-button');
+        }
+      } else {
+        sendNotification('Failed to copy cookie value', true);
+      }
+    });
+    
+    document.addEventListener('cookie-copy-json', async function(e) {
+      const { cookieId, cookie } = e.detail;
+      if (!cookie) {
+        console.error('Cannot copy cookie JSON: cookie object is empty or undefined');
+        sendNotification('Failed to copy: cookie object is empty', true);
+        return;
+      }
+      
+      console.log('Copying cookie JSON from custom event:', cookie);
+      const json = JSON.stringify(cookie, null, 2);
+      const success = await copyText(json);
+      
+      if (success) {
+        sendNotification('Copied whole cookie (JSON) to clipboard', false);
+        // Show success animation if possible
+        const cookieObj = loadedCookies[cookieId];
+        if (cookieObj && typeof cookieObj.showSuccessAnimationOnButton === 'function') {
+          cookieObj.showSuccessAnimationOnButton('button.copy-options-button');
+        }
+      } else {
+        sendNotification('Failed to copy cookie JSON', true);
+      }
+    });
+
+    // Add event listeners for theme selector
+    const themeSelector = document.getElementById('theme-selector');
+    
+    // Set the initial value based on current theme setting or default to auto
+    const currentTheme = optionHandler.getTheme() || 'auto';
+    themeSelector.value = currentTheme;
+    
+    // No longer force auto to dark - let it use the system preference
+    
+    themeSelector.addEventListener('change', function(e) {
+      const newTheme = e.target.value;
+      optionHandler.setTheme(newTheme);
+      themeHandler.updateTheme();
+    });
+
+    // Listen for theme changes from other parts of the extension
+    optionHandler.on('optionsChanged', function(oldOptions) {
+      if (oldOptions.theme !== optionHandler.getTheme()) {
+        themeSelector.value = optionHandler.getTheme();
+      }
+    });
+
+    // Load & initialize parent-domain toggle setting
+    includeParentCookies = await storageHandler.getLocal('includeParentDomainCookies', false);
+    // Create settings gear and menu for parent-domain inclusion
+    const domainSettingsBtn = document.createElement('button');
+    domainSettingsBtn.id = 'domain-settings-button';
+    domainSettingsBtn.title = 'Domain filter settings';
+    domainSettingsBtn.innerHTML = '<svg class="icon"><use href="../sprites/solid.svg#user-cog"></use></svg>';
+    const settingsMenu = document.createElement('div');
+    settingsMenu.id = 'domain-settings-menu';
+    settingsMenu.classList.add('hidden');
+    const checkboxLabel = document.createElement('label');
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.id = 'include-parent-checkbox';
+    checkbox.checked = includeParentCookies;
+    checkboxLabel.appendChild(checkbox);
+    checkboxLabel.appendChild(document.createTextNode('Include parent domain cookies'));
+    settingsMenu.appendChild(checkboxLabel);
+    // Reposition gear before the domain dropdown
+    const wrapper = domainSelector.parentNode;
+    wrapper.style.position = 'relative';
+    wrapper.insertBefore(domainSettingsBtn, domainSelector);
+    wrapper.insertBefore(settingsMenu, domainSelector);
+    // Toggle settings menu open/close
+    domainSettingsBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      settingsMenu.classList.toggle('hidden');
+    });
+    checkbox.addEventListener('change', async () => {
+      includeParentCookies = checkbox.checked;
+      await storageHandler.setLocal('includeParentDomainCookies', includeParentCookies);
+      if (selectedDomain) {
+        await showCookiesForSelectedDomain(true);
+      } else {
+        await showCookiesForTab(true);
+      }
+    });
+    // On popup open, apply the persisted parent-cookie setting by refreshing the list
+    if (selectedDomain) {
+      showCookiesForSelectedDomain(true);
+    } else {
+      showCookiesForTab(true);
+    }
   });
 
   // == End document ready == //
@@ -1516,12 +1982,14 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
 
     // Get the current tab URL's domain
     const currentUrl = cookieHandler.currentTab.url;
-    const domain = getDomainFromUrl(currentUrl);
+    const domain = profileManager.getDomainFromUrl(currentUrl);
     
     // Reset the permission requested flag if the domain has changed
     if (currentDomain !== domain) {
       console.log('[showCookiesForTab] Domain changed, resetting hasRequestedPermission flag.');
       hasRequestedPermission = false;
+      // Update currentDomain for side panel context
+      currentDomain = domain;
     }
     
     // Update the "Current tab domain" option in the domain selector only if it exists
@@ -1580,17 +2048,67 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       
       // Always clear cache when explicitly showing cookies for tab to prevent stale data
       cookieCache.clear(); // <-- Restore cache clearing here
-      
-      // Get all cookies for the current tab
-      cookieHandler.getAllCookies(function (cookies) {
-        console.log(`[showCookiesForTab] Received ${cookies.length} cookies.`);
-        
-        // Update the cache
-        cookieCache.store(currentUrl, cookies);
-        
-        // Render the cookies
-        renderCookies(cookies, resolve);
-      });
+      // Begin updated logic: fetch cookies by domain rather than by URL, merging www and root when appropriate
+      const domainsToFetch = [currentDomain];
+      const normalizedDomain = currentDomain.toLowerCase();
+      if (normalizedDomain.startsWith('www.')) {
+        const canonicalDomain = currentDomain.substring(4);
+        if (canonicalDomain && canonicalDomain !== currentDomain) {
+          domainsToFetch.push(canonicalDomain);
+        }
+      }
+      // Conditionally add fallback for non-www subdomains: include root domain
+      if (includeParentCookies) {
+        const parts = normalizedDomain.split('.');
+        if (parts.length > 2) {
+          const rootDomain = parts.slice(-2).join('.');
+          if (rootDomain && !domainsToFetch.includes(rootDomain)) {
+            domainsToFetch.push(rootDomain);
+          }
+        }
+      }
+      console.log(`[showCookiesForTab] Fetching cookies for domains: ${domainsToFetch.join(', ')}`);
+      if (domainsToFetch.length === 1) {
+        getCookiesForDomainWrapper(currentDomain, function (cookies) {
+          // Filter cookies to only exact domain matches (exclude subdomains)
+          const exact = cookies.filter(cookie => {
+            const cd = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
+            return cd === currentDomain;
+          });
+          console.log(`[showCookiesForTab] Received ${cookies.length} cookies, ${exact.length} exact matches for domain: ${currentDomain}`);
+          cookieCache.store(currentUrl, exact);
+          renderCookies(exact, resolve);
+        });
+      } else {
+        const mergedCookies = [];
+        let pendingFetches = domainsToFetch.length;
+        domainsToFetch.forEach(domain => {
+          getCookiesForDomainWrapper(domain, function (cookies) {
+            // Only exact matches for this domain
+            const exact = cookies.filter(cookie => {
+              const cd = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
+              return cd === domain;
+            });
+            mergedCookies.push(...exact);
+            if (--pendingFetches === 0) {
+              // Deduplicate cookies by name, domain, and path
+              const seen = new Set();
+              const uniqueCookies = [];
+              mergedCookies.forEach(cookie => {
+                const key = `${cookie.name}|${cookie.domain}|${cookie.path}`;
+                if (!seen.has(key)) {
+                  seen.add(key);
+                  uniqueCookies.push(cookie);
+                }
+              });
+              console.log(`[showCookiesForTab] Filtered & merged cookies. Unique after dedupe: ${uniqueCookies.length}`);
+              cookieCache.store(currentUrl, uniqueCookies);
+              renderCookies(uniqueCookies, resolve);
+            }
+          });
+        });
+      }
+      // End updated logic
     });
   }
   
@@ -1646,6 +2164,15 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
         'right',
         () => {
           isAnimating = false; // Reset the animation flag when done
+          
+          // Check if cookies have been modified compared to loaded profile
+          // This is important when reopening the popup to detect natural cookie changes
+          if (currentDomain) {
+            setTimeout(() => {
+              checkIfCookiesModified();
+            }, 100);
+          }
+          
           resolve();
         },
         useAnimations
@@ -1653,6 +2180,15 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     } else {
       // If no existing content, just add the cookie list directly
       containerCookie.appendChild(cookiesListHtml);
+      
+      // Check if cookies have been modified compared to loaded profile
+      // This is important when reopening the popup to detect natural cookie changes
+      if (currentDomain) {
+        setTimeout(() => {
+          checkIfCookiesModified();
+        }, 100);
+      }
+      
       resolve();
     }
   }
@@ -1733,78 +2269,65 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     }
     
     console.log('[showCookiesForSelectedDomain] Getting cookies for domain:', selectedDomain);
-    // Return a promise that resolves when cookies are displayed
+    // Return a promise that resolves when cookies are displayed, with optional parent-domain inclusion
     return new Promise((resolve) => {
-      // Use our wrapper function instead of cookieHandler.getCookiesForDomain directly
-      getCookiesForDomainWrapper(selectedDomain, function (cookies) {
-        console.log(`[showCookiesForSelectedDomain] Received ${cookies.length} cookies for domain: ${selectedDomain}`);
-        // Sort cookies by name
-        cookies = cookies.sort(sortCookiesByName);
-        
-        // Reset loaded cookies tracking
+      // Build domains list: selected + optional root fallback
+      const domainsToFetch = [selectedDomain];
+      if (includeParentCookies) {
+        const parts = selectedDomain.toLowerCase().split('.');
+        if (parts.length > 2) {
+          const root = parts.slice(-2).join('.');
+          if (root && !domainsToFetch.includes(root)) domainsToFetch.push(root);
+        }
+      }
+      const merged = [];
+      let pending = domainsToFetch.length;
+      domainsToFetch.forEach(domain => {
+        getCookiesForDomainWrapper(domain, cookies => {
+          const exact = cookies.filter(c => {
+            const cd = c.domain.startsWith('.') ? c.domain.substring(1) : c.domain;
+            return cd === domain;
+          });
+          merged.push(...exact);
+          if (--pending === 0) {
+            // Dedupe and sort
+            const seen = new Set();
+            const unique = [];
+            merged.forEach(c => {
+              const key = `${c.name}|${c.domain}|${c.path}`;
+              if (!seen.has(key)) { seen.add(key); unique.push(c); }
+            });
+            const sorted = unique.sort(sortCookiesByName);
+            // Render or empty state
         loadedCookies = {};
-        
-        // Handle case with no cookies
-        if (cookies.length === 0) {
-          const html = document
-            .importNode(document.getElementById('tmp-empty').content, true)
-            .querySelector('p');
-          
+        if (sorted.length === 0) {
+          const html = document.importNode(document.getElementById('tmp-empty').content, true).querySelector('p');
           html.textContent = `No cookies found for domain: ${selectedDomain}`;
-          
           if (containerCookie.firstChild) {
-            // Set the animation flag to prevent concurrent animations
             isAnimating = true;
-            
-            Animate.transitionPage(
-              containerCookie,
-              containerCookie.firstChild,
-              html,
-              'right',
-              () => {
-                isAnimating = false; // Reset the animation flag when done
-                resolve();
-              },
-              optionHandler.getAnimationsEnabled()
-            );
+                Animate.transitionPage(containerCookie, containerCookie.firstChild, html, 'right', () => { isAnimating = false; resolve(); }, optionHandler.getAnimationsEnabled());
           } else {
             containerCookie.appendChild(html);
             resolve();
           }
-          return;
-        }
-        
-        // Create cookie list element
+            } else {
         cookiesListHtml = document.createElement('ul');
         cookiesListHtml.appendChild(generateSearchBar());
-        
-        // Add each cookie to the list
-        cookies.forEach(function (cookie) {
-          const id = Cookie.hashCode(cookie);
-          loadedCookies[id] = new Cookie(id, cookie, optionHandler);
+              sorted.forEach(c => {
+                const id = Cookie.hashCode(c);
+                loadedCookies[id] = new Cookie(id, c, optionHandler);
           cookiesListHtml.appendChild(loadedCookies[id].html);
         });
-        
-        // Perform the transition with animation
         if (containerCookie.firstChild) {
-          // Set the animation flag to prevent concurrent animations
           isAnimating = true;
-          
-          Animate.transitionPage(
-            containerCookie,
-            containerCookie.firstChild,
-            cookiesListHtml,
-            'right',
-            () => {
-              isAnimating = false; // Reset the animation flag when done
-              resolve();
-            },
-            optionHandler.getAnimationsEnabled()
-          );
+                Animate.transitionPage(containerCookie, containerCookie.firstChild, cookiesListHtml, 'right', () => { isAnimating = false; resolve(); }, optionHandler.getAnimationsEnabled());
         } else {
           containerCookie.appendChild(cookiesListHtml);
           resolve();
+              }
+            }
         }
+        });
       });
     });
   }
@@ -1951,22 +2474,21 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
           }
         });
       
-      // Add click handler for all sites permission request
+      // Add click handler for all sites permission request via background
       document
         .getElementById('request-permission-all')
-        .addEventListener('click', async (event) => {
+        .addEventListener('click', (event) => {
           hasRequestedPermission = true;
-          
-          try {
-            const isPermissionGranted =
-              await permissionHandler.requestPermission('<all_urls>');
-            
-            if (isPermissionGranted) {
+          const api = browserDetector.getApi();
+          if (api.runtime && api.runtime.sendMessage) {
+            api.runtime.sendMessage(
+              { type: 'permissionsRequest', params: '<all_urls>' },
+              (granted) => {
+                if (granted) {
               showCookiesForTab();
             }
-          } catch (error) {
-            console.error('Permission request error:', error);
-            showPermissionImpossible();
+              }
+            );
           }
         });
     }
@@ -2040,6 +2562,13 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
    * Enables or disables the animations based on the options.
    */
   function handleAnimationsEnabled() {
+    // Make sure the document.body exists before trying to modify its classes
+    if (!document.body) {
+      // If body doesn't exist yet, schedule this to run after a short delay
+      setTimeout(handleAnimationsEnabled, 50);
+      return;
+    }
+
     if (optionHandler.getAnimationsEnabled()) {
       document.body.classList.remove('notransition');
     } else {
@@ -2202,7 +2731,7 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
   /**
    * Exports all the cookies for the current tab in the JSON format.
    */
-  function exportToJson() {
+  async function exportToJson() {
     hideExportMenu();
     const buttonIcon = document
       .getElementById('export-cookies')
@@ -2211,19 +2740,24 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       return;
     }
 
-    buttonIcon.setAttribute('href', '../sprites/solid.svg#check');
-    copyText(JsonFormat.format(loadedCookies));
+    const jsonText = JsonFormat.format(loadedCookies);
+    const success = await copyText(jsonText);
 
+    if (success) {
+      buttonIcon.setAttribute('href', '../sprites/solid.svg#check');
     sendNotification('Cookies exported to clipboard as JSON', false);
     setTimeout(() => {
       buttonIcon.setAttribute('href', '../sprites/solid.svg#file-export');
     }, 1500);
+    } else {
+      sendNotification('Failed to export cookies to clipboard', true);
+    }
   }
 
   /**
    * Exports all the cookies for the current tab in the header string format.
    */
-  function exportToHeaderstring() {
+  async function exportToHeaderstring() {
     hideExportMenu();
     const buttonIcon = document
       .getElementById('export-cookies')
@@ -2232,19 +2766,24 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       return;
     }
 
-    buttonIcon.setAttribute('href', '../sprites/solid.svg#check');
-    copyText(HeaderstringFormat.format(loadedCookies));
+    const headerString = HeaderstringFormat.format(loadedCookies);
+    const success = await copyText(headerString);
 
+    if (success) {
+      buttonIcon.setAttribute('href', '../sprites/solid.svg#check');
     sendNotification('Cookies exported to clipboard as Header String', false);
     setTimeout(() => {
       buttonIcon.setAttribute('href', '../sprites/solid.svg#file-export');
     }, 1500);
+    } else {
+      sendNotification('Failed to export cookies to clipboard', true);
+    }
   }
 
   /**
    * Exports all the cookies for the current tab in the Netscape format.
    */
-  function exportToNetscape() {
+  async function exportToNetscape() {
     hideExportMenu();
     const buttonIcon = document
       .getElementById('export-cookies')
@@ -2253,13 +2792,18 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       return;
     }
 
-    buttonIcon.setAttribute('href', '../sprites/solid.svg#check');
-    copyText(NetscapeFormat.format(loadedCookies));
+    const netscapeFormat = NetscapeFormat.format(loadedCookies);
+    const success = await copyText(netscapeFormat);
 
-    sendNotification('Cookies exported to clipboard as Netscape format', false);
+    if (success) {
+      buttonIcon.setAttribute('href', '../sprites/solid.svg#check');
+      sendNotification('Cookies exported to clipboard as Netscape Format', false);
     setTimeout(() => {
       buttonIcon.setAttribute('href', '../sprites/solid.svg#file-export');
     }, 1500);
+    } else {
+      sendNotification('Failed to export cookies to clipboard', true);
+    }
   }
 
   /**
@@ -2269,12 +2813,44 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
    * @param {function} callback
    */
   function removeCookie(name, url, callback) {
-    // Store a reference to the cookie for UI updates
-    const cookieId = Object.keys(loadedCookies).find(id => 
+    // First, find the exact cookie we want to delete
+    let cookieToDelete = null;
+    let cookieId = null;
+    
+    // If we're given a specific cookie ID, use that to find the cookie
+    if (typeof name === 'object' && name.cookieId) {
+      cookieId = name.cookieId;
+      if (loadedCookies[cookieId]) {
+        cookieToDelete = loadedCookies[cookieId].cookie;
+        name = cookieToDelete.name; // Use the name from the found cookie
+      }
+    } else {
+      // Otherwise, find the cookie by name (potential issue: might find first matching name, not specific path)
+      // TODO: Refine this find logic if multiple cookies share the same name but different paths/domains in loadedCookies
+      cookieId = Object.keys(loadedCookies).find(id => 
       loadedCookies[id].cookie.name === name
     );
     
-    // If we found the cookie in our loaded cookies, remove it from UI immediately
+      if (cookieId) {
+        cookieToDelete = loadedCookies[cookieId].cookie;
+      }
+    }
+
+    // If we couldn't find the cookie to delete, bail out
+    if (!cookieToDelete) {
+      console.warn(`Could not find cookie "${name}" to delete.`);
+      if (callback) callback(null); // Indicate failure
+      return;
+    }
+    
+    // Save the original cookie for history tracking
+    let originalCookie = JSON.parse(JSON.stringify(cookieToDelete));
+    const targetName = originalCookie.name;
+    const targetPath = originalCookie.path;
+    const targetDomain = originalCookie.domain;
+    const targetStoreId = originalCookie.storeId;
+    
+    // Find and remove the cookie from the UI immediately
     if (cookieId && loadedCookies[cookieId] && loadedCookies[cookieId].html) {
       const cookieElement = loadedCookies[cookieId].html;
       if (cookieElement && cookieElement.parentNode) {
@@ -2284,49 +2860,240 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       delete loadedCookies[cookieId];
     }
     
-    // Then send the request to actually remove it
-    cookieHandler.removeCookie(name, url || getCurrentTabUrl(), function (e) {
-      if (callback) {
-        callback();
-      }
-      if (browserDetector.isSafari()) {
-        onCookiesChanged();
-      }
-    });
+    // Ensure we have a valid base URL for operations
+    let baseUrl = url || getCurrentTabUrl();
     
-    // Check if cookies have been modified from loaded profile
-    // Use a small timeout to ensure this runs after cookie is fully removed
+    // Construct the specific URL for deletion targeting the exact cookie
+    let urlForDelete = baseUrl;
+    try {
+      // Remove leading dot from domain if present
+      const cleanDomain = targetDomain && targetDomain.startsWith('.') 
+        ? targetDomain.substring(1) 
+        : targetDomain;
+        
+      const cookiePath = targetPath || '/';
+      
+      const urlObj = new URL(baseUrl);
+      if (cleanDomain) {
+        urlForDelete = `${urlObj.protocol}//${cleanDomain}${cookiePath}`;
+      } else {
+        // Use host if domain isn't specified (e.g., hostOnly cookies)
+        urlForDelete = `${urlObj.protocol}//${urlObj.host}${cookiePath}`;
+      }
+    } catch (e) {
+      console.error('Error constructing specific URL for deletion:', e);
+      // Fallback URL construction if primary fails
+      if (targetDomain) {
+        const cleanDomain = targetDomain.startsWith('.') ? targetDomain.substring(1) : targetDomain;
+        const cookiePath = targetPath || '/';
+        // Assume https if protocol unknown
+        urlForDelete = `https://${cleanDomain}${cookiePath}`; 
+      } else {
+         // If domain is also missing, we might be unable to delete effectively
+         console.error("Cannot reliably construct delete URL without domain info.");
+         // Attempt deletion with base URL anyway? Or fail? For now, proceed with baseUrl.
+         urlForDelete = baseUrl; 
+      }
+    }
+
+    // --- Start Delete-Recreate Logic ---
+    
+    // 1. Fetch all cookies matching the domain (and implicitly the storeId via context)
+    cookieHandler.getCookiesForDomain(targetDomain, (allDomainCookies) => {
+      if (!allDomainCookies) {
+         console.error("Failed to fetch domain cookies, cannot proceed with safe delete.");
+         if (callback) callback(null); // Indicate potential failure
+         // Maybe attempt a simple delete anyway? For now, we stop.
+         return;
+      }
+
+      // 2. Filter for cookies with the same name but DIFFERENT path
+      const cookiesToRecreate = allDomainCookies.filter(cookie => 
+        cookie.name === targetName &&
+        cookie.path !== targetPath &&
+        cookie.storeId === targetStoreId // Ensure same storeId
+      );
+      
+      // Keep only necessary details for recreation, prevent circular refs
+      const recreationData = cookiesToRecreate.map(c => ({
+        name: c.name,
+        value: c.value,
+        domain: c.domain,
+        path: c.path,
+        secure: c.secure,
+        httpOnly: c.httpOnly,
+        sameSite: c.sameSite,
+        expirationDate: c.expirationDate,
+        storeId: c.storeId,
+        hostOnly: c.hostOnly, // Include hostOnly
+        session: !c.expirationDate // Determine session based on expirationDate
+      }));
+
+      // 3. Perform the deletion (which might delete more than intended)
+      cookieHandler.removeCookie(targetName, urlForDelete, targetStoreId, function (result) {
+        
+        // 4. Recreate the other cookies
+        // Use Promise.all to handle multiple async save operations
+        const recreatePromises = recreationData.map(cookieData => {
+          return new Promise((resolve, reject) => {
+            // We need to use cookieHandler.saveCookie directly here,
+            // as the saveCookie function in this file is for UI forms.
+            // Construct the necessary URL for saving.
+             let urlForSave = baseUrl; // Start with base
+             try {
+                const cleanDomain = cookieData.domain && cookieData.domain.startsWith('.') ? cookieData.domain.substring(1) : cookieData.domain;
+                const cookiePath = cookieData.path || '/';
+                const urlObj = new URL(baseUrl);
+                if (cleanDomain) {
+                   urlForSave = `${urlObj.protocol}//${cleanDomain}${cookiePath}`;
+                } else {
+                   urlForSave = `${urlObj.protocol}//${urlObj.host}${cookiePath}`;
+                }
+             } catch(e) {
+                console.error('Error constructing URL for cookie recreation:', e);
+                // Fallback
+                 if (cookieData.domain) {
+                   const cleanDomain = cookieData.domain.startsWith('.') ? cookieData.domain.substring(1) : cookieData.domain;
+                   const cookiePath = cookieData.path || '/';
+                   urlForSave = `https://${cleanDomain}${cookiePath}`;
+                 } else {
+                   // If domain is missing, saving might be problematic
+                   urlForSave = baseUrl;
+                 }
+             }
+
+            // Note: prepareCookie within saveCookie needs these fields.
+            const cookieToSave = {
+               name: cookieData.name,
+               value: cookieData.value,
+               domain: cookieData.domain,
+               path: cookieData.path,
+               secure: cookieData.secure,
+               httpOnly: cookieData.httpOnly,
+               sameSite: cookieData.sameSite,
+               expirationDate: cookieData.expirationDate,
+               storeId: cookieData.storeId,
+               hostOnly: cookieData.hostOnly // Pass hostOnly
+               // session is implied by null expirationDate in prepareCookie
+            };
+             
+            // Use cookieHandler.saveCookie
+            cookieHandler.saveCookie(cookieToSave, urlForSave, (error, savedCookie) => {
+              if (error) {
+                console.error(`Failed to recreate cookie: ${cookieData.name} (${cookieData.path})`, error);
+                reject(error); // Reject promise on failure
+              } else {
+                console.log(`Successfully recreated cookie: ${savedCookie.name} (${savedCookie.path})`);
+                resolve(savedCookie); // Resolve promise on success
+              }
+            });
+          });
+        });
+
+        Promise.allSettled(recreatePromises).then(recreationResults => {
+          // Log any failures during recreation
+          recreationResults.forEach((res, index) => {
+            if (res.status === 'rejected') {
+               console.error(`Recreation failed for cookie index ${index}:`, res.reason);
+            }
+          });
+
+          // Original deletion result handling
+          if (!result && !originalCookie) {
+            console.warn(`Attempted to delete potentially "ghost" cookie "${targetName}" - refreshing cookie list`);
+            setTimeout(() => {
+              cookieCache.clear();
+              if (selectedDomain) {
+                showCookiesForSelectedDomain(true);
+              } else {
+                showCookiesForTab(true);
+              }
+            }, 100);
+          }
+          
+          // Record the *intended* deletion in history 
+          if (originalCookie) {
+             // Use the original target cookie for history, not any recreated ones
+            historyHandler.recordOperation('delete', originalCookie, null, urlForDelete || baseUrl);
+            updateHistoryButtons();
+          }
+      
+          // Execute original callback
+          if (callback) {
+            callback(result); // Pass the result of the *initial* delete call
+          }
+          
+          // Clear cache and refresh UI after cookie recreation
+          cookieCache.clear();
+          onCookiesChanged(); // Refresh UI after safe delete recreation
+        });
+      });
+    });
+    // --- End Delete-Recreate Logic ---
+    
+    // Check if cookies have been modified (original timeout moved)
+    // This check should happen after recreation attempts
     setTimeout(() => {
       checkIfCookiesModified();
-    }, 50);
+    }, 300); // Increased delay
   }
 
   /**
    * Handles when the cookies change.
    */
   function onCookiesChanged() {
-    // PERFORMANCE OPTIMIZATION: Clear the cache when cookies change
-    cookieCache.clear(); // <-- Restore cache clearing here
+    // Clear the cache when cookies change
+    cookieCache.clear();
     
-    if (cookieChangeTimeout !== null) {
-      clearTimeout(cookieChangeTimeout);
-    }
-    
-    // Don't refresh if any cookie expandos are currently open
+    // Skip refresh under certain conditions
     const activeExpandos = document.querySelectorAll('.header.active');
-    if (activeExpandos.length > 0) {
-      console.log('[onCookiesChanged] Skipping refresh because cookies are expanded:', activeExpandos.length);
+    const isAddOrImportActive = containerCookie.querySelector('form.create, form.import');
+    
+    // Don't refresh during these states:
+    // - During profile loading
+    // - When expandos/forms are active
+    // - When already animating
+    // - When a refresh happened too recently
+    const now = Date.now();
+    if (isProfileLoading || 
+        activeExpandos.length > 0 || 
+        isAddOrImportActive || 
+        isAnimating || 
+        (now - lastCookieRefreshTimestamp < MIN_REFRESH_INTERVAL)) {
+      console.log('[onCookiesChanged] Skipping refresh because of active UI state or rate limiting.');
       return;
     }
+
+    // Debounce refreshes to avoid multiple rapid updates
+    if (window._cookieRefreshTimeout) {
+      clearTimeout(window._cookieRefreshTimeout);
+    }
     
-    cookieChangeTimeout = setTimeout(function () {
-      cookieChangeTimeout = null;
+    window._cookieRefreshTimeout = setTimeout(() => {
+      window._cookieRefreshTimeout = null;
+      lastCookieRefreshTimestamp = Date.now(); // Record refresh time
+      
+      // Choose the appropriate refresh method
+      let refreshPromise;
       if (selectedDomain) {
-        showCookiesForSelectedDomain(true);
+        refreshPromise = showCookiesForSelectedDomain(true);
       } else {
-        showCookiesForTab();
+        refreshPromise = showCookiesForTab();
       }
-    }, 2000); // Increased from 500ms to 2000ms to reduce refresh frequency
+      
+      // After refreshing, check for modifications - but only if needed
+      refreshPromise.then(() => {
+        // Add a delay before checking for modifications
+        setTimeout(() => {
+          // Only check if modifications matter (we have profiles)
+          if (currentDomain && profileSelector && profileSelector.value) {
+            checkIfCookiesModified();
+          }
+        }, 1000); // Increased delay
+      }).catch(error => {
+        console.error('Error refreshing cookies:', error);
+      });
+    }, 800); // Increased debounce delay
   }
 
   /**
@@ -2556,28 +3323,19 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     // Add profile selector change event
     profileSelector.addEventListener('change', handleProfileSelectionChange);
     
-    // Add export/import all profiles to main menu
+    // Remove any existing profile import/export buttons from main menu
+    // since we're now handling these in the profile actions submenu
     const menuContent = document.getElementById('main-menu-content');
+    const importAllProfilesBtn = document.getElementById('import-all-profiles');
+    const exportAllProfilesBtn = document.getElementById('export-all-profiles');
     
-    // Check if buttons already exist to avoid duplicates
-    // Add Import Profiles button first
-    if (!document.getElementById('import-all-profiles')) {
-      const importAllProfilesBtn = document.createElement('button');
-      importAllProfilesBtn.className = 'menu-item';
-      importAllProfilesBtn.id = 'import-all-profiles';
-      importAllProfilesBtn.innerHTML = 'Import Profiles <svg class="icon"><use href="../sprites/solid.svg#file-import"></use></svg>';
-      importAllProfilesBtn.addEventListener('click', importAllProfiles);
-      menuContent.appendChild(importAllProfilesBtn);
+    // Remove buttons if they exist in the main menu
+    if (importAllProfilesBtn && importAllProfilesBtn.parentElement === menuContent) {
+      menuContent.removeChild(importAllProfilesBtn);
     }
     
-    // Then add Export All Profiles button
-    if (!document.getElementById('export-all-profiles')) {
-      const exportAllProfilesBtn = document.createElement('button');
-      exportAllProfilesBtn.className = 'menu-item';
-      exportAllProfilesBtn.id = 'export-all-profiles';
-      exportAllProfilesBtn.innerHTML = 'Export All Profiles <svg class="icon"><use href="../sprites/solid.svg#file-export"></use></svg>';
-      exportAllProfilesBtn.addEventListener('click', exportAllProfiles);
-      menuContent.appendChild(exportAllProfilesBtn);
+    if (exportAllProfilesBtn && exportAllProfilesBtn.parentElement === menuContent) {
+      menuContent.removeChild(exportAllProfilesBtn);
     }
   }
 
@@ -2628,11 +3386,64 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       document.getElementById('tmp-search-bar').content,
       true,
     );
-    searchBarContainer
-      .getElementById('searchField')
-      .addEventListener('keyup', (e) =>
-        filterCookies(e.target, e.target.value),
-      );
+    
+    const searchField = searchBarContainer.getElementById('searchField');
+    const searchNames = searchBarContainer.getElementById('searchNames');
+    const searchValues = searchBarContainer.getElementById('searchValues');
+    const searchOptionsToggle = searchBarContainer.getElementById('searchOptionsToggle');
+    const searchOptionsContainer = searchBarContainer.getElementById('searchOptionsContainer');
+    
+    // Load initial search options from storage
+    try {
+      const savedOptions = optionHandler.getSearchOptions();
+      searchNames.checked = savedOptions.searchNames;
+      searchValues.checked = savedOptions.searchValues;
+    } catch (e) {
+      console.error('Error loading search options:', e);
+      // Fall back to defaults from HTML template
+    }
+    
+    // Update search options in storage and apply filtering
+    const updateSearchOptions = () => {
+      const options = {
+        searchNames: searchNames.checked,
+        searchValues: searchValues.checked
+      };
+      
+      // Save options to persist between sessions
+      optionHandler.setSearchOptions(options);
+      
+      // Filter cookies with current options when checkboxes change
+      if (searchField.value) {
+        filterCookies(searchField, searchField.value, options);
+      }
+    };
+    
+    // Toggle search options visibility
+    searchOptionsToggle.addEventListener('click', (e) => {
+      if (searchOptionsContainer.classList.contains('collapsed')) {
+        searchOptionsContainer.classList.remove('collapsed');
+        searchOptionsContainer.classList.add('expanded');
+        // No need to move the toggle button - it stays in place
+      } else {
+        searchOptionsContainer.classList.remove('expanded');
+        searchOptionsContainer.classList.add('collapsed');
+      }
+    });
+    
+    // Add event listeners for search options
+    searchNames.addEventListener('change', updateSearchOptions);
+    searchValues.addEventListener('change', updateSearchOptions);
+    
+    // Modified to pass search options to filterCookies
+    searchField.addEventListener('keyup', (e) => {
+      const options = {
+        searchNames: searchNames.checked,
+        searchValues: searchValues.checked
+      };
+      filterCookies(e.target, e.target.value, options);
+    });
+    
     return searchBarContainer;
   }
 
@@ -2719,19 +3530,92 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
   }
 
   /**
-   * Copy some text to the user's clipboard.
+   * Copy some text to the user's clipboard using the modern Clipboard API with fallbacks.
    * @param {string} text Text to copy.
+   * @return {Promise<boolean>} Whether the copy was successful.
    */
-  function copyText(text) {
-    const fakeText = document.createElement('textarea');
-    fakeText.classList.add('clipboardCopier');
-    fakeText.textContent = text;
-    document.body.appendChild(fakeText);
-    fakeText.focus();
-    fakeText.select();
-    // TODO: switch to clipboard API.
-    document.execCommand('Copy');
-    document.body.removeChild(fakeText);
+  async function copyText(text) {
+    if (text === undefined || text === null) {
+      console.error('Attempted to copy null/undefined text to clipboard');
+      return false;
+    }
+    
+    // Convert non-string values to string
+    text = String(text);
+    
+    if (text.length === 0) {
+      console.warn('Copying empty string to clipboard');
+      // Continue with copy - empty string is valid to copy
+    }
+
+    try {
+      // Modern Clipboard API method
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        console.log('Text copied using Clipboard API');
+        return true;
+      }
+    } catch (err) {
+      console.warn('Clipboard API failed, trying fallback:', err);
+      // Continue to fallback
+    }
+
+    // Classic execCommand fallback
+    try {
+      const textArea = document.createElement('textarea');
+      
+      // Style the textarea to be as hidden as possible but still functional
+      Object.assign(textArea.style, {
+        position: 'fixed',
+        top: '0',
+        left: '0',
+        width: '2em',
+        height: '2em',
+        padding: '0',
+        border: 'none',
+        outline: 'none',
+        boxShadow: 'none',
+        background: 'transparent',
+        zIndex: '9999'
+      });
+      
+      textArea.value = text;
+      document.body.appendChild(textArea);
+      
+      // Try multiple selection approaches
+      textArea.focus();
+      textArea.select();
+      
+      // Try to select text in case the standard select() didn't work
+      try {
+        const range = document.createRange();
+        range.selectNodeContents(textArea);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        textArea.setSelectionRange(0, text.length);
+      } catch (selectErr) {
+        console.warn('Advanced text selection failed:', selectErr);
+        // Continue with copy attempt anyway
+      }
+      
+      // Execute copy command
+      const successful = document.execCommand('copy');
+      
+      // Cleanup
+      document.body.removeChild(textArea);
+      
+      if (successful) {
+        console.log('Text copied using execCommand fallback');
+        return true;
+      } else {
+        console.error('execCommand copy failed');
+        return false;
+      }
+    } catch (err) {
+      console.error('All clipboard methods failed:', err);
+      return false;
+    }
   }
 
   /**
@@ -2767,8 +3651,14 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
    * Filters the cookies based on keywords. Used for searching.
    * @param {element} target The searchbox.
    * @param {*} filterText The text to search for.
+   * @param {object} options Search options containing searchNames and searchValues flags.
    */
-  function filterCookies(target, filterText) {
+  function filterCookies(target, filterText, options = null) {
+    // Use saved options if none provided
+    if (!options) {
+      options = optionHandler.getSearchOptions();
+    }
+    
     // Get the currently displayed cookie list element
     const currentCookieList = document.getElementById('cookie-container').querySelector('ul');
     if (!currentCookieList) {
@@ -2784,12 +3674,60 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       target.classList.remove('content');
     }
 
-    for (let i = 0; i < cookies.length; i++) {
-      const cookieElement = cookies[i];
+    // If no search options are selected, default to searching names
+    if (!options.searchNames && !options.searchValues) {
+      options.searchNames = true;
+    }
+
+    // Helper to get cookie value from data attributes or cookie store
+    function getCookieValueForSearch(cookieElement) {
+      // Try to get from the loaded cookie data structure first
       const cookieName = cookieElement.children[0]
         .getElementsByTagName('span')[0]
-        .textContent.toLocaleLowerCase();
-      if (!filterText || cookieName.indexOf(filterText) > -1) {
+        .textContent;
+      
+      // Look through loadedCookies array to find matching cookie
+      if (loadedCookies && loadedCookies.length) {
+        for (const cookie of loadedCookies) {
+          if (cookie.name === cookieName) {
+            return cookie.value.toLowerCase();
+          }
+        }
+      }
+      
+      // Fallback to DOM element
+      const valueInput = cookieElement.querySelector('.input-value');
+      return valueInput ? valueInput.value.toLowerCase() : '';
+    }
+
+    for (let i = 0; i < cookies.length; i++) {
+      const cookieElement = cookies[i];
+      let foundMatch = false;
+      
+      if (!filterText) {
+        // If no filter text, show all cookies
+        foundMatch = true;
+      } else {
+        // Check cookie name if option is enabled
+        if (options.searchNames) {
+          const cookieName = cookieElement.children[0]
+            .getElementsByTagName('span')[0]
+            .textContent.toLowerCase();
+          if (cookieName.indexOf(filterText) > -1) {
+            foundMatch = true;
+          }
+        }
+        
+        // Check cookie value if option is enabled and no match found yet
+        if (!foundMatch && options.searchValues) {
+          const cookieValue = getCookieValueForSearch(cookieElement);
+          if (cookieValue && cookieValue.indexOf(filterText) > -1) {
+            foundMatch = true;
+          }
+        }
+      }
+      
+      if (foundMatch) {
         cookieElement.classList.remove('hide');
       } else {
         cookieElement.classList.add('hide');
@@ -2957,17 +3895,35 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     if (!domain) return;
     
     try {
+      console.log(`[updateProfileStatusIndicator] Getting metadata for domain: ${domain}`);
       const metadata = await profileManager.getProfileMetadataForDomain(domain);
+      console.log(`[updateProfileStatusIndicator] Metadata received:`, JSON.stringify(metadata));
+      
       const statusContainer = document.getElementById('profile-status');
       
       // Ensure status container exists
-      if (!statusContainer) return;
+      if (!statusContainer) {
+        console.warn('[updateProfileStatusIndicator] Status container not found in DOM');
+        return;
+      }
+      
+      // Reset all option texts to their original names first
+      if (profileSelector) {
+        const profileNames = await profileManager.getProfileNamesForDomain(domain);
+        for (let i = 0; i < profileSelector.options.length; i++) {
+          const optionValue = profileSelector.options[i].value;
+          if (optionValue && profileNames.includes(optionValue)) {
+            profileSelector.options[i].textContent = optionValue;
+          }
+        }
+      }
       
       if (metadata.lastLoaded) {
         // Get the Load button
         const loadBtn = document.getElementById('load-profile');
         
         if (metadata.modified) {
+          console.log(`[updateProfileStatusIndicator] Setting modified state for "${metadata.lastLoaded}"`);
           // Set status to modified
           statusContainer.textContent = `Modified since loading "${metadata.lastLoaded}"`;
           statusContainer.className = 'profile-status modified';
@@ -2987,6 +3943,7 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
             }
           }
         } else {
+          console.log(`[updateProfileStatusIndicator] Setting loaded (unmodified) state for "${metadata.lastLoaded}"`);
           // Set status to loaded (unmodified)
           statusContainer.textContent = `Currently loaded: ${metadata.lastLoaded}`;
           statusContainer.className = 'profile-status loaded';
@@ -3007,20 +3964,10 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
           }
         }
       } else {
+        console.log(`[updateProfileStatusIndicator] No profile loaded, setting "none" state`);
         // No profile loaded
         statusContainer.textContent = 'No profile loaded';
         statusContainer.className = 'profile-status none';
-        
-        // Reset all option texts to their original names
-        if (profileSelector) {
-          const profileNames = await profileManager.getProfileNamesForDomain(domain);
-          for (let i = 0; i < profileSelector.options.length; i++) {
-            const optionValue = profileSelector.options[i].value;
-            if (optionValue && profileNames.includes(optionValue)) {
-              profileSelector.options[i].textContent = optionValue;
-            }
-          }
-        }
       }
     } catch (error) {
       console.error('Error updating profile status indicator:', error);
@@ -3215,165 +4162,167 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
    * @return {Promise<boolean>} User confirmation result
    */
   function confirmAction(message) {
-    return new Promise(resolve => {
-      const result = window.confirm(message);
-      resolve(result);
-    });
+    return showImportConfirmationDialog(message).then(result => result.confirmed);
   }
 
   /**
    * Loads the selected profile
    */
   async function loadSelectedProfile() {
-    // Exit if in side panel
-    if (isSidePanel()) return;
-    if (!currentDomain || !profileSelector.value) {
-      sendNotification('No profile selected.', true);
-      return;
-    }
-    
-    // If another profile load is in progress, ignore this request
-    if (disableButtons) {
+    if (!profileSelector || !profileSelector.value) {
+      sendNotification('Please select a profile first', true);
       return;
     }
     
     const profileName = profileSelector.value;
     
-    // Cache the current domain to avoid scope issues
-    const targetDomain = currentDomain;
-    
-    // Disable buttons during loading to prevent multiple clicks
-    disableButtons = true;
-    
-    // Start a performance timer
-    const startTime = performance.now();
-    
-    // Record current scroll position of the container
-    const scrollPos = containerCookie.scrollTop;
-    
-    // Store container height to prevent layout shifts
-    const containerHeight = containerCookie.offsetHeight || 400;
-    containerCookie.style.height = `${containerHeight}px`;
-    
-    // Show loading message
-    sendNotification(`Loading profile "${profileName}"...`, false);
-    
-    // Clear the container to show loading state immediately
-    clearChildren(containerCookie);
-    
-    try {
-      // Get profile cookies
-      const cookies = await profileManager.getProfile(targetDomain, profileName);
+    // Only show confirmation if preference is set to true
+    let shouldLoad = true;
+    if (showProfileLoadConfirmation) {
+      const result = await showImportConfirmationDialog(
+        `Are you sure you want to load the profile "${profileName}"? This will replace your current cookies for this domain.`,
+        'Load Profile Confirmation'
+      );
       
-      if (!cookies || cookies.length === 0) {
-        sendNotification('Profile has no cookies to load.', true);
-        disableButtons = false;
-        containerCookie.style.height = '';
+      shouldLoad = result.confirmed;
+      
+      // Save the "Don't ask again" preference if checked
+      if (result.confirmed && result.dontAskAgain) {
+        showProfileLoadConfirmation = false;
+        await storageHandler.setLocal('showProfileLoadConfirmation', false);
+      }
+    }
+    
+    if (!shouldLoad) {
+      sendNotification('Profile load cancelled.', false);
+      return;
+    }
+
+    const selectedProfile = await profileManager.getProfile(currentDomain, profileName);
+    
+    console.log('Loading profile:', profileName, 'Data:', selectedProfile);
+    
+    if (!selectedProfile) {
+      sendNotification('Profile data not found', true);
+      return;
+    }
+    
+    // Handle both new format (object with cookies array) and legacy format (array of cookies directly)
+    let cookiesToLoad = selectedProfile;
+    
+    if (!Array.isArray(selectedProfile)) {
+      if (selectedProfile.cookies && Array.isArray(selectedProfile.cookies)) {
+        cookiesToLoad = selectedProfile.cookies;
+      } else {
+        console.error('Invalid profile structure:', selectedProfile);
+        sendNotification('Invalid profile data structure', true);
         return;
       }
+    }
+    
+    if (cookiesToLoad.length === 0) {
+      sendNotification('Profile contains no cookies', true);
+      return;
+    }
       
-      // Create a temporary loading indicator
-      const loadingIndicator = document.createElement('div');
-      loadingIndicator.className = 'loading-indicator';
-      loadingIndicator.textContent = 'Applying cookies...';
-      loadingIndicator.style.textAlign = 'center';
-      loadingIndicator.style.padding = '20px';
-      loadingIndicator.style.color = 'var(--text-color)';
-      containerCookie.appendChild(loadingIndicator);
-      
-      // Determine batch size based on number of cookies
-      const BATCH_SIZE = cookies.length > 50 ? 5 : (cookies.length > 20 ? 3 : 1);
-      
-      // Delete all existing cookies first and wait for completion
-      await deleteAllCookiesForDomain(targetDomain);
-      
-      // Add a small delay to ensure browser has processed all deletions
-      await new Promise(r => setTimeout(r, 50));
-      
-      // Update the loading indicator text
-      loadingIndicator.textContent = `Adding ${cookies.length} cookies...`;
-      
-      // Add cookies in batches for better performance
-      let errorCount = 0;
+    // Show loading indicator
+    const buttonIcon = document.getElementById('load-profile')?.querySelector('use');
+    if (buttonIcon) {
+      buttonIcon.setAttribute('href', '../sprites/solid.svg#spinner');
+      document.getElementById('load-profile').classList.add('loading');
+    }
+    
+    // Set flag to prevent double refresh
+    isProfileLoading = true;
+    
+    try {
+      // First get the current cookies to store for history
       const currentUrl = getCurrentTabUrl();
+      const currentCookies = [];
       
-      // Process cookies in batches
-      for (let i = 0; i < cookies.length; i += BATCH_SIZE) {
-        const batch = cookies.slice(i, i + BATCH_SIZE);
-        
-        // Process batch in parallel
-        const promises = batch.map(cookie => {
-          return new Promise((resolve) => {
-            cookieHandler.saveCookie(cookie, currentUrl, (error) => {
-              if (error) {
-                errorCount++;
-                console.error('Error setting cookie:', error);
-              }
-              resolve(); // Always resolve to continue processing
+      // Get all cookies for the current domain (to store for history)
+      await new Promise((resolve) => {
+        cookieHandler.getAllCookies((cookies) => {
+          if (cookies && Array.isArray(cookies)) {
+            // Deep clone the cookies to avoid reference issues
+            cookies.forEach(cookie => {
+              currentCookies.push(JSON.parse(JSON.stringify(cookie)));
             });
+          }
+          resolve();
           });
         });
         
-        // Wait for batch to complete
-        await Promise.all(promises);
-        
-        // Update loading indicator to show progress
-        const progress = Math.min(100, Math.round((i + batch.length) / cookies.length * 100));
-        loadingIndicator.textContent = `Adding cookies... ${progress}%`;
-        
-        // Small delay between batches to let the browser catch up
-        if (i + BATCH_SIZE < cookies.length) {
-          await new Promise(r => setTimeout(r, 10));
-        }
+      // Delete all existing cookies first
+      const domainToUse = currentDomain || getDomainFromUrl(getCurrentTabUrl());
+      await deleteAllCookiesForDomain(domainToUse);
+      
+      // Track loaded profile cookies for history
+      const loadedProfileCookies = [];
+      
+      // Then import the profile cookies
+      const cookiesToImport = cookiesToLoad;
+      const loadPromises = [];
+      
+      // Prepare all cookies for importing
+      for (const cookie of cookiesToImport) {
+        loadPromises.push(
+          new Promise((resolve) => {
+            // Add the cookie to the store
+            cookieHandler.saveCookie(cookie, currentUrl, (error, savedCookie) => {
+              if (error) {
+                console.error(`Error loading cookie ${cookie.name}:`, error);
+              } else if (savedCookie) {
+                // Add to our tracking for history
+                loadedProfileCookies.push(JSON.parse(JSON.stringify(savedCookie)));
+              }
+              resolve();
+            });
+          })
+        );
       }
       
-      // Mark the profile as loaded (this updates the metadata in storage)
-      await profileManager.markProfileAsLoaded(targetDomain, profileName, cookies);
+      // Wait for all cookies to be imported
+      await Promise.all(loadPromises);
       
-      // Update both the profile selector and status indicator to ensure UI is in sync
-      await updateProfileSelector(targetDomain);
-      await updateProfileStatusIndicator(targetDomain);
+      // --- BEGIN ADDITION: Update profile manager state ---
+      // Mark the profile as loaded in the profile manager
+      await profileManager.setProfileAsLoaded(currentDomain, profileName);
+      // --- END ADDITION ---
       
-      // Remove the loading indicator
-      containerCookie.removeChild(loadingIndicator);
+      // Record the profile loading operation in history
+      if (currentCookies.length > 0 || loadedProfileCookies.length > 0) {
+        historyHandler.recordOperation('loadProfile', currentCookies, loadedProfileCookies, currentUrl);
+        updateHistoryButtons();
+      }
       
-      // Now determine which cookies to show based on the currently selected domain
+      // Refresh the cookie list
       if (selectedDomain) {
-        // If a specific domain is selected in the dropdown, use that
-        await showCookiesForSelectedDomain(true);
+        showCookiesForSelectedDomain(true);
       } else {
-        // Otherwise show current tab cookies
-        await showCookiesForTab(true);
+        showCookiesForTab();
       }
       
-      // Restore original scroll position
-      containerCookie.scrollTop = scrollPos;
+      // Update profile status to indicate profile is loaded
+      await updateProfileStatusIndicator(currentDomain);
       
-      // Restore container height after content is fully loaded
-      requestAnimationFrame(() => {
-        containerCookie.style.height = '';
-      });
-      
-      disableButtons = false;
-      
-      // Calculate and log operation time
-      const endTime = performance.now();
-      const operationTime = Math.round(endTime - startTime);
-      console.log(`Profile load operation completed in ${operationTime}ms`);
-      
-      if (errorCount > 0) {
-        sendNotification(`Profile loaded with ${errorCount} errors.`, true);
-      } else {
-        sendNotification(`Profile "${profileName}" loaded successfully in ${operationTime}ms.`, false);
-      }
+      // Show success message
+      sendNotification(`Loaded profile: ${profileName}`, false);
     } catch (error) {
       console.error('Error loading profile:', error);
-      sendNotification('Failed to load profile.', true);
-      disableButtons = false;
-      // Restore container height
-      requestAnimationFrame(() => {
-        containerCookie.style.height = '';
-      });
+      sendNotification('Error loading profile', true);
+    } finally {
+      // Reset the button icon
+      if (buttonIcon) {
+        buttonIcon.setAttribute('href', '../sprites/solid.svg#upload');
+        document.getElementById('load-profile').classList.remove('loading');
+      }
+      
+      // Reset the profile loading flag after a small delay
+      // This gives time for the UI to finish refreshing before allowing automatic refreshes
+      setTimeout(() => {
+        isProfileLoading = false;
+      }, 500);
     }
   }
   
@@ -3629,27 +4578,44 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
    * Checks if cookies have been modified from the loaded profile
    */
   async function checkIfCookiesModified() {
-    if (!currentDomain) return;
+    // Exit early if no domain or no cookie updates needed
+    if (!currentDomain || isSidePanel()) return;
     
-    // Extract current cookies
-    const currentCookies = [];
-    for (const id in loadedCookies) {
-      currentCookies.push(loadedCookies[id].cookie);
+    // Exit if we're already checking cookies to prevent cascading updates
+    if (window._isCheckingCookies) return;
+    
+    // Apply time-based throttling to prevent too frequent checks
+    const now = Date.now();
+    if (now - lastCookieModificationCheckTime < MIN_MODIFICATION_CHECK_INTERVAL) {
+      console.log(`[checkIfCookiesModified] Throttling check, last check was ${now - lastCookieModificationCheckTime}ms ago`);
+      return;
     }
     
-    // Log cookie state for debugging
-    console.log(`[checkIfCookiesModified] Checking ${currentCookies.length} cookies against loaded profile for domain ${currentDomain}`);
+    lastCookieModificationCheckTime = now;
     
-    // Check if cookies have been modified
-    const modified = await profileManager.checkIfCookiesModified(currentDomain, currentCookies);
-    
-    // If we needed to update the UI, update both the status indicator and profile selector
-    if (!isSidePanel()) {
-      console.log(`[checkIfCookiesModified] Modified status: ${modified}, updating UI`);
-      await updateProfileStatusIndicator(currentDomain);
+    try {
+      window._isCheckingCookies = true;
       
-      // Always update the profile selector to ensure button states are correct
-      await updateProfileSelector(currentDomain);
+      // Extract current cookies
+      const currentCookies = [];
+      for (const id in loadedCookies) {
+        currentCookies.push(loadedCookies[id].cookie);
+      }
+      
+      // Log cookie state for debugging
+      console.log(`[checkIfCookiesModified] Checking ${currentCookies.length} cookies against loaded profile for domain ${currentDomain}`);
+      
+      // Check if cookies have been modified
+      const modified = await profileManager.checkIfCookiesModified(currentDomain, currentCookies);
+      
+      // If we needed to update the UI, update both the status indicator and profile selector
+      if (!isSidePanel()) {
+        console.log(`[checkIfCookiesModified] Modified status: ${modified}, updating UI`);
+        // Only call updateProfileSelector once
+        await updateProfileSelector(currentDomain);
+      }
+    } finally {
+      window._isCheckingCookies = false;
     }
   }
 
@@ -3721,130 +4687,54 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
   async function importAllProfiles() {
     // Exit if in side panel
     if (isSidePanel()) return;
+    
     // Create file input
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
     fileInput.accept = '.json';
     
     fileInput.onchange = async function() {
-      if (!fileInput.files || !fileInput.files[0]) return;
-      
+      if (!fileInput.files || fileInput.files.length === 0) return;
       try {
-        // Read file content
-        const file = fileInput.files[0];
-        const reader = new FileReader();
-        
-        reader.onload = async function(e) {
+        const files = Array.from(fileInput.files);
+        const allProfiles = await profileManager.getAllProfiles();
+        const existing = allProfiles[currentDomain] && Object.keys(allProfiles[currentDomain]).length > 0;
+        if (existing) {
+          const proceed = await showImportMergeDialog();
+          if (!proceed) {
+            sendNotification('Import cancelled.', false);
+              return;
+            }
+        }
+        let importedCount = 0;
+        for (const file of files) {
           try {
-            const jsonString = e.target.result;
-            const importedData = JSON.parse(jsonString);
-            
-            // Validate imported data
-            if (typeof importedData !== 'object') {
-              sendNotification('Invalid profile data format.', true);
-              return;
-            }
-            
-            // Check if the imported data has any profiles
-            const domainCount = Object.keys(importedData).length;
-            if (domainCount === 0) {
-              sendNotification('No profiles found in import file.', true);
-              return;
-            }
-            
-            // If current domain exists in the import, ask if user wants to import just that or all domains
-            let domainsToImport = null;
-            let targetDomain = currentDomain;
-            
-            if (importedData[currentDomain]) {
-              // Only ask about importing all domains if there's more than one domain
-              if (domainCount > 1) {
-                const importAllDomains = await confirmAction('Import profiles for all domains? Click OK to import all domains or Cancel to import only for the current domain.');
-                
-                if (importAllDomains) {
-                  domainsToImport = Object.keys(importedData);
-                } else {
-                  domainsToImport = [currentDomain];
+            const text = await file.text();
+            const importedData = JSON.parse(text);
+            const profiles = importedData[currentDomain];
+            if (profiles && typeof profiles === 'object') {
+              if (!allProfiles[currentDomain]) allProfiles[currentDomain] = {};
+              for (const name in profiles) {
+                allProfiles[currentDomain][name] = profiles[name];
+                importedCount++;
                 }
               } else {
-                // Only one domain in the import file
-                domainsToImport = [currentDomain];
-              }
-            } else {
-              // No profiles for current domain, show a list of available domains if more than one
-              domainsToImport = Object.keys(importedData);
-              
-              if (domainsToImport.length === 1) {
-                targetDomain = domainsToImport[0];
-              } else if (domainsToImport.length > 1) {
-                // Create a simple dialog to select domains
-                const domainList = domainsToImport.join(', ');
-                const importAllDomains = await confirmAction(`Found profiles for ${domainsToImport.length} domains: ${domainList}. Click OK to import all domains or Cancel to select specific domains.`);
-                
-                if (!importAllDomains) {
-                  // User will select domains later, but for now update the UI for the current domain
-                  targetDomain = domainsToImport[0];
-                }
-              }
+              sendNotification(`No profiles for ${currentDomain} in file ${file.name}.`, true);
             }
-            
-            // Ask whether to merge with existing profiles or cancel
-            const allProfiles = await profileManager.getAllProfiles();
-            
-            // Check if there are existing profiles for the domains to be imported
-            let hasExistingProfiles = false;
-            for (const domain of domainsToImport) {
-              if (allProfiles[domain] && Object.keys(allProfiles[domain]).length > 0) {
-                hasExistingProfiles = true;
-                break;
-              }
-            }
-            
-            let shouldProceed = true;
-            if (hasExistingProfiles) {
-              shouldProceed = await confirmAction('OK to merge and replace existing ones (same profile name), CANCEL to cancel import');
-            }
-            
-            if (!shouldProceed) {
-              sendNotification('Import cancelled.', false);
-              return;
-            }
-            
-            // Import the selected domains
-            for (const domain of domainsToImport) {
-              if (!allProfiles[domain]) {
-                allProfiles[domain] = {};
-              }
-              
-              // Add imported profiles for this domain
-              for (const profileName in importedData[domain]) {
-                allProfiles[domain][profileName] = importedData[domain][profileName];
-              }
-            }
-            
-            // Save updated profiles
+          } catch (err) {
+            console.error(`Error importing file ${file.name}:`, err);
+            sendNotification(`Failed to import ${file.name}: ${err.message}`, true);
+          }
+        }
             await storageHandler.setLocal(profileManager.profileStorageKey, allProfiles);
-            
-            // Force cache invalidation before updating UI
             profileManager._invalidateCache();
-            
-            // Update the UI
-            await updateProfileSelector(targetDomain);
-            
-            sendNotification(`${domainsToImport.length} domain profiles imported successfully.`, false);
+        await updateProfileSelector(currentDomain);
+        sendNotification(`${importedCount} profiles imported successfully for ${currentDomain}.`, false);
           } catch (error) {
-            console.error('Domain import parsing error:', error);
+        console.error('Domain import error:', error);
             sendNotification('Failed to import domain profiles: ' + error.message, true);
           }
         };
-        
-        reader.readAsText(file);
-      } catch (error) {
-        console.error('File read error:', error);
-        sendNotification('Failed to read file: ' + error.message, true);
-      }
-    };
-    
     fileInput.click();
   }
 
@@ -4148,7 +5038,9 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     
     // Update the "Current tab domain" text if we have a current domain
     if (currentDomain && domainSelector.options.length > 0) {
-      domainSelector.options[0].textContent = `Current tab domain (${currentDomain})`;
+      // Display the canonical domain (strip www.) for consistency with profile/cookie handling
+      const canonicalDomain = currentDomain.toLowerCase().startsWith('www.') ? currentDomain.substring(4) : currentDomain;
+      domainSelector.options[0].textContent = `Current tab domain (${canonicalDomain})`;
     }
     
     // Add custom domain option right after "Current tab domain"
@@ -4627,10 +5519,13 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     // Exit if in side panel
     if (isSidePanel()) return;
     e.stopPropagation();
+    
     const domainProfileMenu = document.getElementById('domain-profile-menu');
+    const domainProfilesSubmenu = document.getElementById('domain-profiles-submenu-content');
+    const allProfilesSubmenu = document.getElementById('all-profiles-submenu-content');
     const button = document.getElementById('profile-actions');
     
-    // Toggle visibility
+    // Toggle visibility of main menu
     const isVisible = domainProfileMenu.classList.contains('visible');
     
     if (!isVisible) {
@@ -4639,12 +5534,192 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       domainProfileMenu.style.top = `${buttonRect.bottom + 5}px`;
       domainProfileMenu.style.left = `${buttonRect.left - 170}px`; // Align right edge with button
       
-      // Show the menu
+      // Show the main menu
       domainProfileMenu.classList.add('visible');
+      
+      // Hide submenus
+      domainProfilesSubmenu.classList.remove('visible');
+      allProfilesSubmenu.classList.remove('visible');
+      
+      // Set up event listeners for submenu navigation
+      setupSubmenuListeners();
     } else {
-      // Hide the menu
-      domainProfileMenu.classList.remove('visible');
+      // Hide all menus
+      hideAllMenus();
     }
+  }
+
+  /**
+   * Sets up event listeners for the profile submenu navigation
+   */
+  function setupSubmenuListeners() {
+    const domainProfileMenu = document.getElementById('domain-profile-menu');
+    const domainProfilesSubmenu = document.getElementById('domain-profiles-submenu-content');
+    const allProfilesSubmenu = document.getElementById('all-profiles-submenu-content');
+    
+    // Domain Profiles submenu button
+    const domainProfilesBtn = document.getElementById('domain-profiles-submenu');
+    if (domainProfilesBtn) {
+      // Remove existing listeners to prevent duplicates
+      const newDomainProfilesBtn = domainProfilesBtn.cloneNode(true);
+      if (domainProfilesBtn.parentNode) {
+        domainProfilesBtn.parentNode.replaceChild(newDomainProfilesBtn, domainProfilesBtn);
+      }
+      
+      newDomainProfilesBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        domainProfileMenu.classList.remove('visible');
+        domainProfilesSubmenu.classList.add('visible');
+        
+        // Position submenu in the same spot as the main menu
+        domainProfilesSubmenu.style.top = domainProfileMenu.style.top;
+        domainProfilesSubmenu.style.left = domainProfileMenu.style.left;
+      });
+    }
+    
+    // All Profiles submenu button
+    const allProfilesBtn = document.getElementById('all-profiles-submenu');
+    if (allProfilesBtn) {
+      // Remove existing listeners to prevent duplicates
+      const newAllProfilesBtn = allProfilesBtn.cloneNode(true);
+      if (allProfilesBtn.parentNode) {
+        allProfilesBtn.parentNode.replaceChild(newAllProfilesBtn, allProfilesBtn);
+      }
+      
+      newAllProfilesBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        domainProfileMenu.classList.remove('visible');
+        allProfilesSubmenu.classList.add('visible');
+        
+        // Position submenu in the same spot as the main menu
+        allProfilesSubmenu.style.top = domainProfileMenu.style.top;
+        allProfilesSubmenu.style.left = domainProfileMenu.style.left;
+      });
+    }
+    
+    // Back buttons
+    const domainProfilesBack = document.getElementById('domain-profiles-back');
+    if (domainProfilesBack) {
+      // Remove existing listeners to prevent duplicates
+      const newDomainProfilesBack = domainProfilesBack.cloneNode(true);
+      if (domainProfilesBack.parentNode) {
+        domainProfilesBack.parentNode.replaceChild(newDomainProfilesBack, domainProfilesBack);
+      }
+      
+      newDomainProfilesBack.addEventListener('click', (e) => {
+        e.stopPropagation();
+        domainProfilesSubmenu.classList.remove('visible');
+        domainProfileMenu.classList.add('visible');
+      });
+    }
+    
+    const allProfilesBack = document.getElementById('all-profiles-back');
+    if (allProfilesBack) {
+      // Remove existing listeners to prevent duplicates
+      const newAllProfilesBack = allProfilesBack.cloneNode(true);
+      if (allProfilesBack.parentNode) {
+        allProfilesBack.parentNode.replaceChild(newAllProfilesBack, allProfilesBack);
+      }
+      
+      newAllProfilesBack.addEventListener('click', (e) => {
+        e.stopPropagation();
+        allProfilesSubmenu.classList.remove('visible');
+        domainProfileMenu.classList.add('visible');
+      });
+    }
+    
+    // Import and export buttons in domain profiles submenu
+    const importDomainBtn = document.getElementById('import-domain-profiles');
+    if (importDomainBtn) {
+      // Remove existing listeners to prevent duplicates
+      const newImportDomainBtn = importDomainBtn.cloneNode(true);
+      if (importDomainBtn.parentNode) {
+        importDomainBtn.parentNode.replaceChild(newImportDomainBtn, importDomainBtn);
+      }
+      
+      newImportDomainBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideAllMenus();
+        importDomainProfiles();
+      });
+    }
+    
+    const exportDomainBtn = document.getElementById('export-domain-profiles');
+    if (exportDomainBtn) {
+      // Remove existing listeners to prevent duplicates
+      const newExportDomainBtn = exportDomainBtn.cloneNode(true);
+      if (exportDomainBtn.parentNode) {
+        exportDomainBtn.parentNode.replaceChild(newExportDomainBtn, exportDomainBtn);
+      }
+      
+      newExportDomainBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideAllMenus();
+        exportDomainProfiles();
+      });
+    }
+    
+    // Import and export buttons in all profiles submenu
+    const importAllBtn = document.getElementById('import-all-profiles');
+    if (importAllBtn) {
+      // Remove existing listeners to prevent duplicates
+      const newImportAllBtn = importAllBtn.cloneNode(true);
+      if (importAllBtn.parentNode) {
+        importAllBtn.parentNode.replaceChild(newImportAllBtn, importAllBtn);
+      }
+      
+      newImportAllBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideAllMenus();
+        importAllProfiles();
+      });
+    }
+    
+    const exportAllBtn = document.getElementById('export-all-profiles');
+    if (exportAllBtn) {
+      // Remove existing listeners to prevent duplicates
+      const newExportAllBtn = exportAllBtn.cloneNode(true);
+      if (exportAllBtn.parentNode) {
+        exportAllBtn.parentNode.replaceChild(newExportAllBtn, exportAllBtn);
+      }
+      
+      newExportAllBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideAllMenus();
+        exportAllProfiles();
+      });
+    }
+    
+    // Close menus when clicking outside
+    document.addEventListener('click', function closeMenusHandler(e) {
+      const domainProfileMenu = document.getElementById('domain-profile-menu');
+      const domainProfilesSubmenu = document.getElementById('domain-profiles-submenu-content');
+      const allProfilesSubmenu = document.getElementById('all-profiles-submenu-content');
+      const profileActionsButton = document.getElementById('profile-actions');
+      
+      const isProfileButton = e.target === profileActionsButton || profileActionsButton.contains(e.target);
+      const isMainMenu = e.target === domainProfileMenu || domainProfileMenu.contains(e.target);
+      const isDomainSubmenu = e.target === domainProfilesSubmenu || domainProfilesSubmenu.contains(e.target);
+      const isAllSubmenu = e.target === allProfilesSubmenu || allProfilesSubmenu.contains(e.target);
+      
+      if (!isProfileButton && !isMainMenu && !isDomainSubmenu && !isAllSubmenu) {
+        hideAllMenus();
+        document.removeEventListener('click', closeMenusHandler);
+      }
+    });
+  }
+
+  /**
+   * Hides all profile action menus
+   */
+  function hideAllMenus() {
+    const domainProfileMenu = document.getElementById('domain-profile-menu');
+    const domainProfilesSubmenu = document.getElementById('domain-profiles-submenu-content');
+    const allProfilesSubmenu = document.getElementById('all-profiles-submenu-content');
+    
+    domainProfileMenu.classList.remove('visible');
+    domainProfilesSubmenu.classList.remove('visible');
+    allProfilesSubmenu.classList.remove('visible');
   }
 
   /**
@@ -4712,123 +5787,48 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
     fileInput.accept = '.json';
+    fileInput.multiple = true;
     
     fileInput.onchange = async function() {
-      if (!fileInput.files || !fileInput.files[0]) return;
-      
+      if (!fileInput.files || fileInput.files.length === 0) return;
       try {
-        // Read file content
-        const file = fileInput.files[0];
-        const reader = new FileReader();
-        
-        reader.onload = async function(e) {
+        const files = Array.from(fileInput.files);
+        const allProfiles = await profileManager.getAllProfiles();
+        const existing = allProfiles[currentDomain] && Object.keys(allProfiles[currentDomain]).length > 0;
+        if (existing) {
+          const proceed = await showImportMergeDialog();
+          if (!proceed) {
+            sendNotification('Import cancelled.', false);
+              return;
+            }
+        }
+        let importedCount = 0;
+        for (const file of files) {
           try {
-            const jsonString = e.target.result;
-            const importedData = JSON.parse(jsonString);
-            
-            // Validate imported data
-            if (typeof importedData !== 'object') {
-              sendNotification('Invalid profile data format.', true);
-              return;
-            }
-            
-            // Check if the imported data has any profiles
-            const domainCount = Object.keys(importedData).length;
-            if (domainCount === 0) {
-              sendNotification('No profiles found in import file.', true);
-              return;
-            }
-            
-            // If current domain exists in the import, ask if user wants to import just that or all domains
-            let domainsToImport = null;
-            let targetDomain = currentDomain;
-            
-            if (importedData[currentDomain]) {
-              // Only ask about importing all domains if there's more than one domain
-              if (domainCount > 1) {
-                const importAllDomains = await confirmAction('Import profiles for all domains? Click OK to import all domains or Cancel to import only for the current domain.');
-                
-                if (importAllDomains) {
-                  domainsToImport = Object.keys(importedData);
-                } else {
-                  domainsToImport = [currentDomain];
+            const text = await file.text();
+            const importedData = JSON.parse(text);
+            const profiles = importedData[currentDomain];
+            if (profiles && typeof profiles === 'object') {
+              if (!allProfiles[currentDomain]) allProfiles[currentDomain] = {};
+              for (const name in profiles) {
+                allProfiles[currentDomain][name] = profiles[name];
+                importedCount++;
                 }
               } else {
-                // Only one domain in the import file
-                domainsToImport = [currentDomain];
-              }
-            } else {
-              // No profiles for current domain, show a list of available domains if more than one
-              domainsToImport = Object.keys(importedData);
-              
-              if (domainsToImport.length === 1) {
-                targetDomain = domainsToImport[0];
-              } else if (domainsToImport.length > 1) {
-                // Create a simple dialog to select domains
-                const domainList = domainsToImport.join(', ');
-                const importAllDomains = await confirmAction(`Found profiles for ${domainsToImport.length} domains: ${domainList}. Click OK to import all domains or Cancel to select specific domains.`);
-                
-                if (!importAllDomains) {
-                  // User will select domains later, but for now update the UI for the current domain
-                  targetDomain = domainsToImport[0];
-                }
-              }
+              sendNotification(`No profiles for ${currentDomain} in file ${file.name}.`, true);
             }
-            
-            // Ask whether to merge with existing profiles or cancel
-            const allProfiles = await profileManager.getAllProfiles();
-            
-            // Check if there are existing profiles for the domains to be imported
-            let hasExistingProfiles = false;
-            for (const domain of domainsToImport) {
-              if (allProfiles[domain] && Object.keys(allProfiles[domain]).length > 0) {
-                hasExistingProfiles = true;
-                break;
-              }
-            }
-            
-            let shouldProceed = true;
-            if (hasExistingProfiles) {
-              shouldProceed = await confirmAction('OK to merge and replace existing ones (same profile name), CANCEL to cancel import');
-            }
-            
-            if (!shouldProceed) {
-              sendNotification('Import cancelled.', false);
-              return;
-            }
-            
-            // Import the selected domains
-            for (const domain of domainsToImport) {
-              if (!allProfiles[domain]) {
-                allProfiles[domain] = {};
-              }
-              
-              // Add imported profiles for this domain
-              for (const profileName in importedData[domain]) {
-                allProfiles[domain][profileName] = importedData[domain][profileName];
-              }
-            }
-            
-            // Save updated profiles
-            await storageHandler.setLocal(profileManager.profileStorageKey, allProfiles);
-            
-            // Force cache invalidation before updating UI
-            profileManager._invalidateCache();
-            
-            // Update the UI
-            await updateProfileSelector(targetDomain);
-            
-            sendNotification(`${domainsToImport.length} domain profiles imported successfully.`, false);
-          } catch (error) {
-            console.error('Domain import parsing error:', error);
-            sendNotification('Failed to import domain profiles: ' + error.message, true);
+          } catch (err) {
+            console.error(`Error importing file ${file.name}:`, err);
+            sendNotification(`Failed to import ${file.name}: ${err.message}`, true);
           }
-        };
-        
-        reader.readAsText(file);
-      } catch (error) {
-        console.error('File read error:', error);
-        sendNotification('Failed to read file: ' + error.message, true);
+        }
+            await storageHandler.setLocal(profileManager.profileStorageKey, allProfiles);
+            profileManager._invalidateCache();
+        await updateProfileSelector(currentDomain);
+        sendNotification(`${importedCount} profiles imported successfully for ${currentDomain}.`, false);
+          } catch (error) {
+        console.error('Domain import error:', error);
+            sendNotification('Failed to import domain profiles: ' + error.message, true);
       }
     };
     
@@ -6069,6 +7069,332 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     if (cookieHandler.currentTab && cookieHandler.currentTab.url) {
       console.log('Checking URL for shared cookies:', cookieHandler.currentTab.url);
       checkForSharedCookies();
+    }
+  }
+
+  /**
+   * Set up the event listeners for the undo and redo buttons
+   */
+  function setupHistoryButtons() {
+    const undoButton = document.getElementById('undo-button');
+    const redoButton = document.getElementById('redo-button');
+    
+    if (undoButton && redoButton) {
+      // Add event listeners for undo and redo buttons
+      undoButton.addEventListener('click', handleUndo);
+      redoButton.addEventListener('click', handleRedo);
+      
+      // Listen for history changes to update button states
+      historyHandler.onHistoryChange(updateHistoryButtons);
+      
+      // Initialize button states
+      updateHistoryButtons();
+    }
+  }
+  
+  /**
+   * Update the undo and redo button states based on history availability
+   */
+  function updateHistoryButtons() {
+    const undoButton = document.getElementById('undo-button');
+    const redoButton = document.getElementById('redo-button');
+    
+    if (undoButton && redoButton) {
+      undoButton.disabled = !historyHandler.canUndo();
+      redoButton.disabled = !historyHandler.canRedo();
+    }
+  }
+  
+  /**
+   * Handle undo button click
+   */
+  function handleUndo() {
+    if (historyHandler.canUndo()) {
+      disableButtons = true; // Prevent user interaction during undo
+      
+      historyHandler.undo((operation) => {
+        if (operation) {
+          // Refresh the cookie list to show changes
+          if (selectedDomain) {
+            showCookiesForSelectedDomain(true);
+          } else {
+            showCookiesForTab();
+          }
+          
+          // Show notification
+          sendNotification('Operation undone', false);
+        } else {
+          sendNotification('Failed to undo operation', true);
+        }
+        
+        disableButtons = false; // Re-enable interaction
+      });
+    }
+  }
+  
+  /**
+   * Handle redo button click
+   */
+  function handleRedo() {
+    if (historyHandler.canRedo()) {
+      disableButtons = true; // Prevent user interaction during redo
+      
+      historyHandler.redo((operation) => {
+        if (operation) {
+          // Refresh the cookie list to show changes
+          if (selectedDomain) {
+            showCookiesForSelectedDomain(true);
+          } else {
+            showCookiesForTab();
+          }
+          
+          // Show notification
+          sendNotification('Operation redone', false);
+        } else {
+          sendNotification('Failed to redo operation', true);
+        }
+        
+        disableButtons = false; // Re-enable interaction
+      });
+    }
+  }
+
+  document.addEventListener('click', function(e) {
+    if (!document.querySelector('#main-menu-button').contains(e.target) &&
+        !document.querySelector('#main-menu-content').contains(e.target)) {
+      document.querySelector('#main-menu-content').classList.remove('visible');
+    }
+  });
+
+  /**
+   * Shows the import confirmation dialog
+   * @param {string} message Message to display
+   * @param {string} title Title of the dialog
+   * @return {Promise<boolean>} User confirmation result
+   */
+  function showImportConfirmationDialog(message, title = 'Import Confirmation') {
+    return new Promise((resolve) => {
+      // Create the dialog from template
+      const template = document.importNode(
+        document.getElementById('tmp-confirm-import-domain').content,
+        true
+      );
+      
+      const dialog = template.querySelector('#confirm-import-dialog');
+      const titleElement = dialog.querySelector('#import-dialog-title');
+      const messageElement = dialog.querySelector('#import-dialog-message');
+      const dontShowAgainCheckbox = dialog.querySelector('#dont-show-again-import');
+      
+      // Set dialog content
+      titleElement.textContent = title;
+      messageElement.textContent = message;
+      
+      document.body.appendChild(dialog);
+      
+      // Set up event listeners
+      const cancelButton = dialog.querySelector('#cancel-import');
+      const confirmButton = dialog.querySelector('#confirm-import');
+      const closeXButton = dialog.querySelector('#cancel-import-x');
+      
+      // Custom escape key handler just for this dialog
+      const escapeKeyHandler = function(e) {
+        if (e.key === 'Escape') {
+          closeDialog();
+          resolve({ confirmed: false, dontAskAgain: false });
+        }
+      };
+      
+      cancelButton.addEventListener('click', () => {
+        closeDialog();
+        resolve({ confirmed: false, dontAskAgain: false });
+      });
+      
+      closeXButton.addEventListener('click', () => {
+        closeDialog();
+        resolve({ confirmed: false, dontAskAgain: false });
+      });
+      
+      confirmButton.addEventListener('click', () => {
+        const dontAskAgain = dontShowAgainCheckbox.checked;
+        closeDialog();
+        resolve({ confirmed: true, dontAskAgain });
+      });
+      
+      // Close on ESC key with our local handler
+      document.addEventListener('keydown', escapeKeyHandler);
+      
+      // Function to close the dialog
+      function closeDialog() {
+        const dialogElement = document.getElementById('confirm-import-dialog');
+        if (dialogElement) {
+          // Remove event listener
+          document.removeEventListener('keydown', escapeKeyHandler);
+          
+          // Remove dialog with animation
+          dialogElement.classList.remove('visible');
+          setTimeout(() => {
+            if (dialogElement.parentNode) {
+              dialogElement.parentNode.removeChild(dialogElement);
+            }
+          }, 300);
+        }
+      }
+      
+      // Show dialog with animation
+      setTimeout(() => {
+        dialog.classList.add('visible');
+      }, 10);
+    });
+  }
+
+  /**
+   * Shows the merge confirmation dialog for import
+   * @return {Promise<boolean>} User confirmation result
+   */
+  function showImportMergeDialog() {
+    return new Promise((resolve) => {
+      // Create the dialog from template
+      const template = document.importNode(
+        document.getElementById('tmp-confirm-import-merge').content,
+        true
+      );
+      
+      const dialog = template.querySelector('#confirm-import-merge-dialog');
+      document.body.appendChild(dialog);
+      
+      // Set up event listeners
+      const cancelButton = dialog.querySelector('#cancel-import-merge');
+      const confirmButton = dialog.querySelector('#confirm-import-merge');
+      const closeXButton = dialog.querySelector('#cancel-import-merge-x');
+      
+      // Custom escape key handler just for this dialog
+      const escapeKeyHandler = function(e) {
+        if (e.key === 'Escape') {
+          closeDialog();
+          resolve(false);
+        }
+      };
+      
+      cancelButton.addEventListener('click', () => {
+        closeDialog();
+        resolve(false);
+      });
+      
+      closeXButton.addEventListener('click', () => {
+        closeDialog();
+        resolve(false);
+      });
+      
+      confirmButton.addEventListener('click', () => {
+        closeDialog();
+        resolve(true);
+      });
+      
+      // Close on ESC key with our local handler
+      document.addEventListener('keydown', escapeKeyHandler);
+      
+      // Function to close the dialog
+      function closeDialog() {
+        const dialogElement = document.getElementById('confirm-import-merge-dialog');
+        if (dialogElement) {
+          // Remove event listener
+          document.removeEventListener('keydown', escapeKeyHandler);
+          
+          // Remove dialog with animation
+          dialogElement.classList.remove('visible');
+          setTimeout(() => {
+            if (dialogElement.parentNode) {
+              dialogElement.parentNode.removeChild(dialogElement);
+            }
+          }, 300);
+        }
+      }
+      
+      // Show dialog with animation
+      setTimeout(() => {
+        dialog.classList.add('visible');
+      }, 10);
+    });
+  }
+
+  // Helper to render cookies in showCookiesForSelectedDomain
+  function renderDomainCookies(cookies, resolve) {
+    // Reset state
+    loadedCookies = {};
+    if (cookies.length === 0) {
+      const html = document.importNode(document.getElementById('tmp-empty').content, true).querySelector('p');
+      html.textContent = `No cookies found for domain: ${selectedDomain}`;
+      if (containerCookie.firstChild) {
+        isAnimating = true;
+        Animate.transitionPage(containerCookie, containerCookie.firstChild, html, 'right', () => { isAnimating = false; resolve(); }, optionHandler.getAnimationsEnabled());
+      } else {
+        containerCookie.appendChild(html);
+        resolve();
+      }
+      return;
+    }
+    // Build list
+    const ul = document.createElement('ul');
+    ul.appendChild(generateSearchBar());
+    cookies.forEach(cookie => {
+      const id = Cookie.hashCode(cookie);
+      loadedCookies[id] = new Cookie(id, cookie, optionHandler);
+      ul.appendChild(loadedCookies[id].html);
+    });
+    // Animate
+    if (containerCookie.firstChild) {
+      isAnimating = true;
+      Animate.transitionPage(containerCookie, containerCookie.firstChild, ul, 'right', () => { isAnimating = false; resolve(); }, optionHandler.getAnimationsEnabled());
+    } else {
+      containerCookie.appendChild(ul);
+      resolve();
+    }
+  }
+
+  setupHistoryButtons();
+  // Inject a force refresh button in various contexts (popup, sidepanel, devtools, mobile)
+  const refreshButton = document.createElement('button');
+  refreshButton.id = 'refresh-button';
+  refreshButton.className = 'share-button'; // Apply the same class as the share button
+  refreshButton.title = 'Force Refresh Cookie List';
+  refreshButton.setAttribute('aria-label', 'Force Refresh Cookie List');
+  refreshButton.innerHTML = '<svg class="icon"><use href="../sprites/solid.svg#sync"></use></svg>';
+  // Attach click handler
+  refreshButton.addEventListener('click', () => {
+    if (selectedDomain) {
+      showCookiesForSelectedDomain(true);
+    } else {
+      showCookiesForTab(true);
+    }
+  });
+
+  // Insert before the share button
+  const domainSelectorContainer = document.querySelector('#domain-selector-container .container');
+  const shareButton = document.getElementById('share-cookies');
+  if (domainSelectorContainer && shareButton) {
+    domainSelectorContainer.insertBefore(refreshButton, shareButton);
+  } else {
+    // Fallback: insert into history controls if available (popup)
+    const historyControls = document.getElementById('history-controls');
+    if (historyControls) {
+      historyControls.insertBefore(refreshButton, historyControls.firstChild);
+    } else {
+      // Fallback: insert before version or main-menu in the title bar
+      const pageTitleEl = document.getElementById('pageTitle');
+      if (pageTitleEl) {
+        const versionEl = document.getElementById('version');
+        if (versionEl && versionEl.parentElement === pageTitleEl) {
+          pageTitleEl.insertBefore(refreshButton, versionEl);
+        } else {
+          const mainMenuEl = document.getElementById('main-menu');
+          if (mainMenuEl && mainMenuEl.parentElement === pageTitleEl) {
+            pageTitleEl.insertBefore(refreshButton, mainMenuEl);
+          } else {
+            // Last resort: append to title bar
+            pageTitleEl.appendChild(refreshButton);
+          }
+        }
+      }
     }
   }
 })();

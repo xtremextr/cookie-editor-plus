@@ -16,9 +16,10 @@ export class GenericStorageHandler extends EventEmitter {
   /**
    * Gets a value from LocalStorage.
    * @param {string} key Key to identify the value in the LocalStorage.
+   * @param {any} defaultValue Optional default value to return if the key doesn't exist.
    * @return {Promise}
    */
-  async getLocal(key) {
+  async getLocal(key, defaultValue = null) {
     const self = this;
     let promise;
     if (this.browserDetector.supportsPromises()) {
@@ -30,13 +31,13 @@ export class GenericStorageHandler extends EventEmitter {
           if (error) {
             reject(error);
           }
-          resolve(data ?? null);
+          resolve(data ?? {});
         });
       });
     }
 
     return promise.then((data) => {
-      return data[key] ?? null;
+      return data[key] !== undefined ? data[key] : defaultValue;
     });
   }
 

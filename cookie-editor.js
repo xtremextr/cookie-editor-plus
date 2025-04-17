@@ -20,6 +20,11 @@ import { extractSharedDataFromUrl } from './interface/lib/sharing/cookieSharing.
   
   // Variable for cookie change debouncing
   let cookieChangeTimeout = null;
+  // Initialize dynamic cookie detection for background script
+  const dynamicCookieNames = new Set(['_dd_s', 'datadome']);
+  const cookieChangeHistory = {};
+  const dynamicDetectionThreshold = 3; // number of changes to detect dynamic cookies
+  const dynamicDetectionWindow = 3500; // detection time window in ms
 
   browserDetector.getApi().runtime.onConnect.addListener(onConnect);
   browserDetector.getApi().runtime.onMessage.addListener(handleMessage);
@@ -85,7 +90,6 @@ import { extractSharedDataFromUrl } from './interface/lib/sharing/cookieSharing.
     browserDetector.getApi().storage.local.get('permittedDomains', (result) => {
       if (result && result.permittedDomains && Array.isArray(result.permittedDomains)) {
         result.permittedDomains.forEach(domain => permittedDomains.add(domain));
-        console.log('Loaded permitted domains:', permittedDomains.size);
       }
     });
   }
@@ -125,9 +129,22 @@ import { extractSharedDataFromUrl } from './interface/lib/sharing/cookieSharing.
    */
   async function hasPermissionForUrl(url) {
     try {
+      // Handle null or undefined URL
+      if (!url) {
+        return false;
+      }
+      
+      // Special case for internal browser URLs and extension pages
+      for (const prefix of ['chrome:', 'chrome-extension:', 'about:', 'edge:', 'moz-extension:', 'safari-web-extension:']) {
+        if (url.startsWith(prefix)) {
+          // No need to log errors for internal pages - just silently return false
+          return false;
+        }
+      }
+      
       return await permissionHandler.checkPermissions(url);
     } catch (error) {
-      console.error('Error checking permissions:', error);
+      console.warn('Permission check failed:', error.message || error);
       return false;
     }
   }
@@ -141,13 +158,18 @@ import { extractSharedDataFromUrl } from './interface/lib/sharing/cookieSharing.
     if (!url || !url.includes('#')) return;
     
     try {
+      // Skip checking extension or internal browser URLs
+      for (const prefix of ['chrome:', 'chrome-extension:', 'about:', 'edge:', 'moz-extension:', 'safari-web-extension:']) {
+        if (url.startsWith(prefix)) {
+          return;
+        }
+      }
+      
       const sharedData = extractSharedDataFromUrl(url);
       if (!sharedData) return;
       
       const dataType = sharedData.type || 'cookies';
       const isProfiles = dataType === 'profiles';
-      
-      console.log(`Background: Found shared ${dataType} in URL:`, url);
       
       // Get a descriptive count for the badge tooltip
       let count = 0;
@@ -178,7 +200,11 @@ import { extractSharedDataFromUrl } from './interface/lib/sharing/cookieSharing.
       // Start pulsing the badge to draw attention
       startBadgePulsing();
     } catch (error) {
-      console.error('Error checking URL for shared data:', error);
+      // Don't log errors for extension pages - just silently return
+      if (url && (url.startsWith('chrome-extension:') || url.startsWith('moz-extension:'))) {
+        return;
+      }
+      console.warn('Error checking URL for shared data:', error.message || error);
     }
   }
 
@@ -331,6 +357,7 @@ import { extractSharedDataFromUrl } from './interface/lib/sharing/cookieSharing.
         const removeParams = {
           name: request.params.name,
           url: request.params.url,
+          storeId: request.params.storeId
         };
         if (browserDetector.supportsPromises()) {
           browserDetector
@@ -349,9 +376,6 @@ import { extractSharedDataFromUrl } from './interface/lib/sharing/cookieSharing.
       case 'permissionsRequest': {
         // When a permission is granted, add it to our permitted domains list
         permissionHandler.requestPermission(request.params).then((result) => {
-          if (result) {
-            addPermittedDomain(request.params);
-          }
           sendResponse(result);
         });
         return true;
@@ -492,6 +516,28 @@ import { extractSharedDataFromUrl } from './interface/lib/sharing/cookieSharing.
       return;
     }
 
+    // Skip changes for known dynamic cookies that update frequently
+    if (changeInfo && changeInfo.cookie) {
+      const name = changeInfo.cookie.name;
+      // Skip known or detected dynamic cookies
+      if (dynamicCookieNames.has(name)) {
+        return;
+      }
+      // Detect dynamic cookies by change frequency
+      const now = Date.now();
+      if (!cookieChangeHistory[name]) {
+        cookieChangeHistory[name] = [];
+      }
+      cookieChangeHistory[name].push(now);
+      // Keep only recent changes within detection window
+      cookieChangeHistory[name] = cookieChangeHistory[name].filter(timestamp => now - timestamp <= dynamicDetectionWindow);
+      // If changes exceed threshold, mark as dynamic and skip
+      if (cookieChangeHistory[name].length > dynamicDetectionThreshold) {
+        dynamicCookieNames.add(name);
+        return;
+      }
+    }
+
     // Clear any existing timeout to debounce rapid changes
     if (cookieChangeTimeout !== null) {
       clearTimeout(cookieChangeTimeout);
@@ -514,7 +560,7 @@ import { extractSharedDataFromUrl } from './interface/lib/sharing/cookieSharing.
           },
         });
       }
-    }, 1500); // Add a 1.5 second debounce time
+    }, 800); // Increased debounce delay to reduce frequency of updates
   }
 
   /**
@@ -529,31 +575,14 @@ import { extractSharedDataFromUrl } from './interface/lib/sharing/cookieSharing.
       return;
     }
     
-    // Check if this is a URL we have permission for
-    if (tab.url) {
-      const domain = getDomainFromUrl(tab.url);
-      
-      // If this domain is in our permitted list or we find we have permission for it
-      if (domain && permittedDomains.has(domain)) {
-        console.log('Background: Checking permitted domain for shared cookies:', domain);
-        
-        // Proactively check for shared cookies since we have permission
+    // Always check if we have permission and if so, check for shared cookies
+    hasPermissionForUrl(tab.url).then(hasPermission => {
+      if (hasPermission) {
         checkUrlForSharedCookies(tab.url);
-      } else if (domain) {
-        // Check if we actually have permission for this domain
-        hasPermissionForUrl(tab.url).then(hasPermission => {
-          if (hasPermission) {
-            console.log('Background: Adding domain to permitted list:', domain);
-            // Add to permitted domains and check for shared cookies
-            permittedDomains.add(domain);
-            savePermittedDomains();
-            checkUrlForSharedCookies(tab.url);
-          }
-        }).catch(error => {
-          console.error('Error checking permissions for URL:', error);
-        });
       }
-    }
+    }).catch(error => {
+      console.error('Error checking permissions for URL:', error);
+    });
     
     // Handle tab change notifications
     if (Object.keys(connections).length === 0 && !browserDetector.getApi().runtime.sendMessage) {

@@ -18,5 +18,9 @@ export class Options {
     this.theme = Themes.Auto;
     this.buttonBarTop = false;
     this.adsEnabled = false;
+    this.searchOptions = {
+      searchNames: true,
+      searchValues: false
+    };
   }
 }

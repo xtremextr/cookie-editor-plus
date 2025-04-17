@@ -1,0 +1,85 @@
+/* Light mode specific overrides for sidepanel */
+[data-theme='light'] #cookie-container #searchField {
+  border: 1px solid var(--primary-border-color);
+  background-color: #fff;
+}
+
+[data-theme='light'] #cookie-container .header {
+  border: 1px solid var(--primary-border-color);
+  border-width: 0 0 1px 0;
+  background-color: var(--primary-surface-color);
+}
+
+[data-theme="light"] #cookie-container .expando {
+  background-color: #f9f9f9;
+}
+
+[data-theme="light"] #cookie-container textarea,
+[data-theme="light"] #cookie-container input[type='text'],
+[data-theme="light"] #cookie-container select {
+  background-color: #ffffff;
+  border-color: var(--primary-border-color);
+}
+
+[data-theme="light"] .panel-section-footer-button:focus {
+  background-color: rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  color: var(--primary-text-color);
+}
+
+[data-theme="light"] .panel-section-footer-button:focus .tooltip {
+  color: var(--primary-text-color);
+}
+
+/* Menu button styling for light theme */
+[data-theme="light"] #main-menu-button {
+  background: var(--primary-accent-color);
+}
+
+[data-theme="light"] #main-menu-button:hover {
+  background-color: var(--primary-accent-darker);
+}
+
+[data-theme="light"] #main-menu-button.active {
+  background-color: var(--primary-accent-darker);
+}
+
+/* Menu styling */
+[data-theme="light"] #main-menu-content {
+  background-color: var(--primary-surface-color);
+  border: 1px solid var(--primary-border-color);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="light"] #main-menu-content .menu-item {
+  color: var(--primary-text-color);
+}
+
+[data-theme="light"] #main-menu-content .menu-item:hover {
+  background-color: var(--secondary-surface-color);
+}
+
+/* Various UI elements */
+[data-theme="light"] .panel-section-footer {
+  background-color: #f5f5f5;
+  border-top: 1px solid var(--primary-border-color);
+}
+
+[data-theme="light"] #theme-selector {
+  background-color: var(--primary-surface-color);
+  border: 1px solid var(--primary-border-color);
+}
+
+[data-theme="light"] #theme-selector option {
+  background-color: var(--primary-surface-color);
+  color: var(--primary-text-color);
+}
+
+/* Ensure inputs have light backgrounds */
+[data-theme="light"] input,
+[data-theme="light"] select,
+[data-theme="light"] textarea {
+  background-color: #ffffff;
+  color: #222222;
+  border-color: var(--primary-border-color);
+} 

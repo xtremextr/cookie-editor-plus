@@ -46,35 +46,61 @@ export class PermissionHandler {
    * @return {Promise}
    */
   async checkPermissions(url) {
-    const testPermission = {
-      origins: [url],
-    };
-    try {
-      const { protocol, hostname } = new URL(url);
-      const rootDomain = this.getRootDomainName(hostname);
-      testPermission.origins = [
-        `${protocol}//${hostname}/*`,
-        `${protocol}//*.${rootDomain}/*`,
-        // Add HTTP versions as well to cover non-secure cookies
-        `http://${hostname}/*`,
-        `http://*.${rootDomain}/*`,
-        // Add HTTPS versions explicitly in case protocol was http
-        `https://${hostname}/*`,
-        `https://*.${rootDomain}/*`,
-      ];
-    } catch (err) {
-      
+    // First check if this URL can have permissions at all
+    if (!this.canHavePermissions(url)) {
+      return false;
     }
-
+    
     // If we don't have access to the permission API, assume we have
     // access. Safari devtools can't access the API.
     if (typeof this.browserDetector.getApi().permissions === 'undefined') {
       return true;
     }
 
-    return await this.browserDetector
-      .getApi()
-      .permissions.contains(testPermission);
+    // Validate URL format to ensure we don't even try to create invalid permission patterns
+    try {
+      const urlObj = new URL(url);
+      // Additional check for schemes that are known to cause "Invalid scheme" errors
+      if (this.impossibleUrls.some(scheme => urlObj.protocol.startsWith(scheme.replace(':', '')))) {
+        return false;
+      }
+      
+      const testPermission = {
+        origins: []
+      };
+      
+      const { protocol, hostname } = urlObj;
+      const rootDomain = this.getRootDomainName(hostname);
+      
+      // Only add patterns for supported schemes (http, https, ws, wss)
+      if (/^(https?|wss?):$/.test(protocol)) {
+        testPermission.origins = [
+          `${protocol}//${hostname}/*`,
+          `${protocol}//*.${rootDomain}/*`,
+          // Add HTTP versions as well to cover non-secure cookies
+          `http://${hostname}/*`,
+          `http://*.${rootDomain}/*`,
+          // Add HTTPS versions explicitly in case protocol was http
+          `https://${hostname}/*`,
+          `https://*.${rootDomain}/*`,
+        ];
+        
+        try {
+          return await this.browserDetector
+            .getApi()
+            .permissions.contains(testPermission);
+        } catch (error) {
+          console.warn('Permission check failed:', error);
+          return false;
+        }
+      } else {
+        // Unsupported scheme for permissions API
+        return false;
+      }
+    } catch (err) {
+      // If URL parsing fails, return false as we can't properly check permissions
+      return false;
+    }
   }
 
   /**
@@ -83,57 +109,69 @@ export class PermissionHandler {
    * @return {Promise}
    */
   async requestPermission(url) {
+    // First check if this URL can have permissions at all
+    if (!this.canHavePermissions(url)) {
+      return false;
+    }
+    
     const permission = {
       origins: [url],
     };
-    try {
-      const { protocol, hostname } = new URL(url);
-      const rootDomain = this.getRootDomainName(hostname);
-      permission.origins = [
-        `${protocol}//${hostname}/*`,
-        `${protocol}//*.${rootDomain}/*`,
-        // Add HTTP versions as well to cover non-secure cookies
-        `http://${hostname}/*`,
-        `http://*.${rootDomain}/*`,
-        // Add HTTPS versions explicitly in case protocol was http
-        `https://${hostname}/*`,
-        `https://*.${rootDomain}/*`,
-      ];
-    } catch (err) {
-      
-    }
-    
-    // Request the permission
-    const result = await this.browserDetector.getApi().permissions.request(permission);
-    
-    // If permission was granted, store the domain in our tracking list
-    if (result) {
+    // Special case: support requesting permissions for all URLs
+    if (url !== '<all_urls>') {
       try {
-        // Get current list of permitted domains
-        const storageObj = await new Promise(resolve => {
-          this.browserDetector.getApi().storage.local.get('permittedDomains', resolve);
-        });
-        
-        // Extract domain and add to list
-        const domainToAdd = this.extractDomainFromUrl(url);
-        let permittedDomains = (storageObj && storageObj.permittedDomains) || [];
-        
-        if (domainToAdd && !permittedDomains.includes(domainToAdd)) {
-          permittedDomains.push(domainToAdd);
-          
-          // Save updated list
-          this.browserDetector.getApi().storage.local.set({
-            permittedDomains: permittedDomains
-          });
-          
-          console.log(`Added ${domainToAdd} to permitted domains list`);
-        }
-      } catch (error) {
-        console.error('Error updating permitted domains:', error);
+        const { protocol, hostname } = new URL(url);
+        const rootDomain = this.getRootDomainName(hostname);
+        permission.origins = [
+          `${protocol}//${hostname}/*`,
+          `${protocol}//*.${rootDomain}/*`,
+          // Add HTTP versions as well to cover non-secure cookies
+          `http://${hostname}/*`,
+          `http://*.${rootDomain}/*`,
+          // Add HTTPS versions explicitly in case protocol was http
+          `https://${hostname}/*`,
+          `https://*.${rootDomain}/*`,
+        ];
+      } catch (err) {
+        // If URL parsing fails, return false as we can't properly request permissions
+        return false;
       }
     }
     
-    return result;
+    // Request the permission
+    try {
+      const result = await this.browserDetector.getApi().permissions.request(permission);
+      
+      // If permission was granted, store the domain in our tracking list
+      if (result) {
+        try {
+          // Get current list of permitted domains
+          const storageObj = await new Promise(resolve => {
+            this.browserDetector.getApi().storage.local.get('permittedDomains', resolve);
+          });
+          
+          // Extract domain and add to list
+          const domainToAdd = this.extractDomainFromUrl(url);
+          let permittedDomains = (storageObj && storageObj.permittedDomains) || [];
+          
+          if (domainToAdd && !permittedDomains.includes(domainToAdd)) {
+            permittedDomains.push(domainToAdd);
+            this.browserDetector.getApi().storage.local.set({
+              permittedDomains: permittedDomains
+            }, () => {
+              // console.log(`Added ${domainToAdd} to permitted domains list`);
+            });
+          }
+        } catch (error) {
+          console.error('Error updating permitted domains:', error);
+        }
+      }
+      
+      return result;
+    } catch (error) {
+      console.warn('Permission request failed:', error);
+      return false;
+    }
   }
   
   /**

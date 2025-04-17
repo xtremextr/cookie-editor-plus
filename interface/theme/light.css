@@ -1,4 +1,4 @@
-:root {
+[data-theme='light'] {
   --primary-surface-color: #ffffff;
   --primary-border-color: #c5c5c5;
   --primary-outline-color: #444;
@@ -46,4 +46,13 @@
   --switch-surface-neutral-color: var(--primary-border-color);
 
   --notice-danger-surface-color: #f8000011;
+  
+  /* Dropdown styling */
+  --dropdown-bg: var(--primary-surface-color);
+  --dropdown-border: var(--primary-border-color);
+  --dropdown-shadow: rgba(0, 0, 0, 0.2);
+  
+  /* Main menu button styling */
+  --primary-accent-color: #4285f4;
+  --primary-accent-darker: #3367d6;
 }

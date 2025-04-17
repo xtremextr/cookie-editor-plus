@@ -20,24 +20,32 @@ export class GenericCookieHandler extends EventEmitter {
    * @param {function} callback
    */
   getAllCookies(callback) {
-    // Extract domain from the current tab's URL
-    const domain = this.currentTab.url ? this.currentTab.url.match(/^https?:\/\/([^/?#]+)(?:[/?#]|$)/i)?.[1] : null;
-
     // Prepare filter parameters, omitting storeId to use the default context
     const filter = {};
 
-    // Use domain if available, otherwise fall back to URL (though domain is preferred)
-    if (domain) {
-        filter.domain = domain;
-    } else if (this.currentTab.url) {
-        // Fallback for cases where domain extraction might fail (e.g., file:// URLs)
-        // This might still filter non-secure cookies if the URL is https.
-        filter.url = this.currentTab.url;
+    // Always prefer filtering by URL if available, as it correctly handles
+    // domain/subdomain matching according to Chrome's cookie rules.
+    if (this.currentTab && this.currentTab.url) {
+      // Ensure we have a valid URL (e.g., ignore chrome://, file:// if needed, although cookies API handles this)
+      if (this.currentTab.url.startsWith('http:') || this.currentTab.url.startsWith('https:')) {
+          filter.url = this.currentTab.url;
+      } else {
+          // Optionally handle non-http(s) URLs if necessary, e.g., extract domain manually
+          // For now, let's stick to URL filtering for http/https where cookies are standard
+          const domain = this.currentTab.url.match(/^https?:\/\/([^/?#]+)(?:[/?#]|$)/i)?.[1];
+          if (domain) {
+              filter.domain = domain; // Fallback to domain filter for non-http(s) if domain is extractable
+          } else {
+               console.error("Cannot get cookies: No valid HTTP(S) URL or extractable domain found for the current tab.");
+               callback([]);
+               return;
+          }
+      }
     } else {
-        // Cannot get cookies without domain or URL
-        console.error("Cannot get cookies: No domain or URL found for the current tab.");
-        callback([]); // Return empty array or handle error appropriately
-        return;
+      // Cannot get cookies without a URL
+      console.error("Cannot get cookies: No URL found for the current tab.");
+      callback([]); // Return empty array or handle error appropriately
+      return;
     }
 
     if (this.browserDetector.supportsPromises()) {
@@ -98,22 +106,55 @@ export class GenericCookieHandler extends EventEmitter {
    * @return {object}
    */
   prepareCookie(cookie, url) {
+    // Handle potential undefined or null cookie object
+    if (!cookie) {
+      console.error('prepareCookie received undefined or null cookie object');
+      throw new Error('Cannot prepare undefined cookie');
+    }
+
+    // Defensive clone to avoid modifying the original
     const newCookie = {
       domain: cookie.domain || '',
       name: cookie.name || '',
       value: cookie.value || '',
-      path: cookie.path || null,
+      path: cookie.path || '/',
       secure: cookie.secure || null,
       httpOnly: cookie.httpOnly || null,
       expirationDate: cookie.expirationDate || null,
-      storeId: cookie.storeId || this.currentTab.cookieStoreId || null,
+      storeId: cookie.storeId || (this.currentTab && this.currentTab.cookieStoreId) || null,
       url: url,
     };
+
+    // Validate required fields
+    if (!newCookie.name) {
+      console.error('prepareCookie received cookie with empty name', cookie);
+      throw new Error('Cookie name is required');
+    }
+
+    // Remove leading dot from domain for URL construction
+    const cleanDomain = newCookie.domain.startsWith('.') ? newCookie.domain.substring(1) : newCookie.domain;
+
+    // For all browsers, ensure the URL includes the path
+    if (newCookie.path && newCookie.path !== '/') {
+      try {
+        // Try to parse and modify the URL to include the path
+        const urlObj = new URL(url);
+        // Update the URL to include the exact path
+        newCookie.url = `${urlObj.protocol}//${urlObj.host}${newCookie.path}`;
+      } catch (e) {
+        // If URL parsing fails, we'll keep the original URL
+        console.error('Error parsing URL in prepareCookie:', e);
+        if (cleanDomain) {
+          newCookie.url = `https://${cleanDomain}${newCookie.path}`;
+        }
+      }
+    }
 
     // Bad hack on safari because cookies needs to have the very exact same domain
     // to be able to edit it.
     if (this.browserDetector.isSafari() && newCookie.domain) {
-      newCookie.url = 'https://' + newCookie.domain;
+      // For Safari, still include the path in the URL but use clean domain
+      newCookie.url = 'https://' + cleanDomain + (newCookie.path || '/');
     }
     if (this.browserDetector.isSafari() && !newCookie.path) {
       newCookie.path = '/';
@@ -145,41 +186,49 @@ export class GenericCookieHandler extends EventEmitter {
    * @param {function} callback
    */
   saveCookie(cookie, url, callback) {
-    cookie = this.prepareCookie(cookie, url);
-    if (this.browserDetector.supportsPromises()) {
-      this.browserDetector
-        .getApi()
-        .cookies.set(cookie)
-        .then(
-          (cookie, a, b, c) => {
+    try {
+      cookie = this.prepareCookie(cookie, url);
+      
+      if (this.browserDetector.supportsPromises()) {
+        this.browserDetector
+          .getApi()
+          .cookies.set(cookie)
+          .then(
+            (cookie, a, b, c) => {
+              if (callback) {
+                callback(null, cookie);
+              }
+            },
+            (error) => {
+              console.error('Error saving cookie:', error);
+              if (callback) {
+                callback(error.message, null);
+              }
+            },
+          );
+      } else {
+        this.browserDetector.getApi().cookies.set(cookie, (cookieResponse) => {
+          const error = this.browserDetector.getApi().runtime.lastError;
+          if (!cookieResponse || error) {
+            console.error('Error saving cookie:', error);
             if (callback) {
-              callback(null, cookie);
+              const errorMessage =
+                (error ? error.message : '') || 'Unknown error';
+              return callback(errorMessage, cookieResponse);
             }
-          },
-          (error) => {
-            
-            if (callback) {
-              callback(error.message, null);
-            }
-          },
-        );
-    } else {
-      this.browserDetector.getApi().cookies.set(cookie, (cookieResponse) => {
-        const error = this.browserDetector.getApi().runtime.lastError;
-        if (!cookieResponse || error) {
-          
-          if (callback) {
-            const errorMessage =
-              (error ? error.message : '') || 'Unknown error';
-            return callback(errorMessage, cookieResponse);
+            return;
           }
-          return;
-        }
 
-        if (callback) {
-          return callback(null, cookieResponse);
-        }
-      });
+          if (callback) {
+            return callback(null, cookieResponse);
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Exception during cookie save preparation:', error);
+      if (callback) {
+        callback(error.message || 'Failed to prepare cookie', null);
+      }
     }
   }
 
@@ -187,28 +236,71 @@ export class GenericCookieHandler extends EventEmitter {
    * Removes a cookie from the browser.
    * @param {string} name The name of the cookie to remove.
    * @param {string} url The url that the cookie is attached to.
+   * @param {string} [storeId] The ID of the cookie store to remove from.
    * @param {function} callback
    * @param {boolean} isRecursive
    */
-  removeCookie(name, url, callback, isRecursive = false) {
+  removeCookie(name, url, storeId, callback, isRecursive = false) {
+    // If storeId is passed before callback, adjust arguments
+    if (typeof storeId === 'function') {
+      isRecursive = callback;
+      callback = storeId;
+      storeId = undefined; 
+    }
+    
     // Bad hack on safari because cookies needs to have the very exact same domain
     // to be able to delete it.
-    // TODO: Check if this hack is needed on devtools.
+    // TODO: Check if this hack is needed on devtools. Needs review after simplification.
     if (this.browserDetector.isSafari() && !isRecursive) {
+      // Keep Safari logic for now, but it needs review.
+      // It might infinite loop if the recursive call doesn't work as expected.
+      console.warn("Safari cookie deletion logic needs review.")
       this.getAllCookies((cookies) => {
+        let found = false;
         for (const cookie of cookies) {
-          if (cookie.name === name) {
-            this.removeCookie(name, 'https://' + cookie.domain, callback, true);
+          // Match name AND try to match domain based on the passed URL.
+          // Construct a more specific URL for Safari if possible.
+          let targetDomain = cookie.domain;
+          try {
+            const urlObj = new URL(url);
+            // Ensure cookie domain matches or is a parent of the URL's domain.
+            const urlHostname = urlObj.hostname;
+            const cookieDomainClean = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;
+            if (urlHostname === cookieDomainClean || urlHostname.endsWith('.' + cookieDomainClean)) {
+               // Found a potential match
+              if (cookie.name === name) {
+                  found = true;
+                  // Use cookie's domain and path for the recursive call
+                  const safariUrl = `${urlObj.protocol}//${cookieDomainClean}${cookie.path || '/'}`;
+                  // Pass storeId in recursive call if available (though Safari logic might need review)
+                  this.removeCookie(name, safariUrl, cookie.storeId, callback, true);
+                  // Assuming Safari needs one deletion call per matching cookie found
+              }
+            }
+          } catch(e) {
+             // If URL parsing fails, fallback to simpler domain check maybe? Or log error.
+             console.error("Error processing URL for Safari cookie check:", e);
           }
         }
+        // If no specific match found after checking all cookies, maybe call original callback with failure?
+        if (!found && callback) {
+            // callback(null); // Indicate no cookie found/deleted - uncomment if needed
+        }
       });
-    } else if (this.browserDetector.supportsPromises()) {
+      return; // Stop further execution for Safari non-recursive call
+    }
+    // The logic that called getAllCookies, compared paths, and called recursively is gone FOR NON-SAFARI BROWSERS.
+
+    // Directly call the browser API (using promises or callbacks based on support)
+    // Use the 'url' provided, which was constructed with the specific path in cookie-list.js
+    if (this.browserDetector.supportsPromises()) {
       try {
         this.browserDetector
           .getApi()
           .cookies.remove({
             name: name,
             url: url,
+            storeId: storeId // Add storeId here
           })
           .then(
             // Success handler
@@ -218,7 +310,7 @@ export class GenericCookieHandler extends EventEmitter {
                   callback(result);
                 } catch (error) {
                   // Callback might fail if popup is closed
-                  console.log('Callback failed, popup may be closed');
+                  console.error('Error during deleteCookie', error);
                 }
               }
             },
@@ -227,10 +319,10 @@ export class GenericCookieHandler extends EventEmitter {
               console.error('Error removing cookie:', error);
               if (callback) {
                 try {
-                  callback();
+                  callback(null); // Pass null on error
                 } catch (callbackError) {
                   // Callback might fail if popup is closed
-                  console.log('Callback failed, popup may be closed');
+                  console.error('Error during deleteCookie error callback', callbackError);
                 }
               }
             }
@@ -239,19 +331,20 @@ export class GenericCookieHandler extends EventEmitter {
         console.error('Exception when removing cookie:', e);
         if (callback) {
           try {
-            callback();
+            callback(null); // Pass null on exception
           } catch (callbackError) {
             // Callback might fail if popup is closed
-            console.log('Callback failed, popup may be closed');
+            console.error('Error during deleteCookie exception callback', callbackError);
           }
         }
       }
-    } else {
+    } else { // Fallback for browsers without promise support
       try {
         this.browserDetector.getApi().cookies.remove(
           {
             name: name,
             url: url,
+            storeId: storeId // Add storeId here
           },
           (result) => {
             if (callback) {
@@ -259,7 +352,7 @@ export class GenericCookieHandler extends EventEmitter {
                 callback(result);
               } catch (error) {
                 // Callback might fail if popup is closed
-                console.log('Callback failed, popup may be closed');
+                console.error('Error during deleteCookie callback', error);
               }
             }
           }
@@ -268,10 +361,10 @@ export class GenericCookieHandler extends EventEmitter {
         console.error('Exception when removing cookie:', e);
         if (callback) {
           try {
-            callback();
+            callback(null); // Pass null on exception
           } catch (callbackError) {
             // Callback might fail if popup is closed
-            console.log('Callback failed, popup may be closed');
+            console.error('Error during deleteCookie exception callback', callbackError);
           }
         }
       }

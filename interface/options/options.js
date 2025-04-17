@@ -23,6 +23,7 @@ document.addEventListener('DOMContentLoaded', async (event) => {
   const themeInput = document.getElementById('theme');
   const buttonBarTopInput = document.getElementById('button-bar-top');
   const adsEnabledInput = document.getElementById('ads-enabled');
+  const notificationElement = document.getElementById('notification');
 
   await optionHandler.loadOptions();
   themeHandler.updateTheme();
@@ -241,11 +242,54 @@ document.addEventListener('DOMContentLoaded', async (event) => {
   }
 
   /**
+   * Displays a notification message to the user
+   * @param {string} message - Message to display
+   * @param {boolean} isError - Whether this is an error message
+   * @param {number} duration - How long to show the message (ms), 0 for no auto-hide
+   */
+  function showNotification(message, isError = false, duration = 4000) {
+    if (!notificationElement) return;
+    
+    // Hide any existing notification first
+    hideNotification();
+    
+    // Small delay to ensure transition works
+    setTimeout(() => {
+      // Set the message and styling
+      notificationElement.textContent = message;
+      notificationElement.classList.remove('hidden', 'success', 'error');
+      
+      if (isError) {
+        notificationElement.classList.add('error');
+      } else {
+        notificationElement.classList.add('success');
+      }
+      
+      // Auto-hide after duration if specified
+      if (duration > 0) {
+        setTimeout(() => {
+          hideNotification();
+        }, duration);
+      }
+    }, 50);
+  }
+
+  /**
+   * Hides the notification element
+   */
+  function hideNotification() {
+    if (notificationElement) {
+      notificationElement.classList.add('hidden');
+    }
+  }
+
+  /**
    * Resets all confirmation dialog preferences
    */
   async function resetConfirmationDialogs() {
     await storageHandler.removeLocal('showDeleteConfirmation');
     await storageHandler.removeLocal('showDeleteAllConfirmation');
-    alert('All confirmation dialogs have been reset.');
+    await storageHandler.removeLocal('showProfileLoadConfirmation');
+    showNotification('✓ All confirmation dialogs have been reset successfully!', false, 4000);
   }
 });

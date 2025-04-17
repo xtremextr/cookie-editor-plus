@@ -40,83 +40,113 @@ export class Cookie {
   }
 
   /**
-   * Updates the generated HTML code for a cookie. Used when a cookie changed
-   * to avoid regenerating completely the HTML. This also allows to display to
-   * the user that a cookie changed.
-   * This will not do anything if the HTML is not yet generated.
-   * @param {*} cookie Cookie data.
+   * Updates the generated HTML code for a cookie in place, preserving the 
+   * expanded state. Directly updates DOM elements based on newCookie data.
+   * @param {object} newCookie Cookie data (the newly saved state).
+   * @param {Element} [liElement] Optional reference to the LI element to update directly.
    */
-  updateHtml(cookie) {
-    if (!this.isGenerated) {
+  updateHtml(newCookie, liElement = null) { 
+    const targetElement = liElement || this.baseHtml; // Use provided element or fallback to stored one
+
+    // If targetElement is null/undefined (meaning liElement wasn't passed AND baseHtml isn't generated), warn and exit.
+    if (!targetElement) {
+      console.warn('updateHtml called but no target element available (liElement missing and HTML not generated).');
       return;
     }
-    this.cookie = cookie;
+    
+    const oldCookie = this.cookie; // Keep for potential future use or debugging
+    this.cookie = newCookie; // Update internal state
 
-    const oldCookieName = this.baseHtml.querySelector(
-      '#name-' + this.guid,
-    ).value;
-    const oldCookieValue = this.baseHtml.querySelector(
-      '#value-' + this.guid,
-    ).value;
-    const oldCookieDomain = this.baseHtml.querySelector(
-      '#domain-' + this.guid,
-    ).value;
-    const oldCookiePath = this.baseHtml.querySelector(
-      '#path-' + this.guid,
-    ).value;
-    const oldCookieSameSite = this.baseHtml.querySelector(
-      '#sameSite-' + this.guid,
-    ).value;
-    const oldCookieHostOnly = this.baseHtml.querySelector(
-      '#hostOnly-' + this.guid,
-    ).checked;
-    const oldCookieSession = this.baseHtml.querySelector(
-      '#session-' + this.guid,
-    ).checked;
-    const oldCookieSecure = this.baseHtml.querySelector(
-      '#secure-' + this.guid,
-    ).checked;
-    const oldCookieHttpOnly = this.baseHtml.querySelector(
-      '#httpOnly-' + this.guid,
-    ).checked;
-    let oldCookieExpiration = this.baseHtml.querySelector(
-      '#expiration-' + this.guid,
-    ).value;
-    oldCookieExpiration = new Date(oldCookieExpiration).getTime() / 1000;
-    if (isNaN(oldCookieExpiration)) {
-      oldCookieExpiration = undefined;
+    // --- Directly Update DOM Elements (No Comparison or Animation) --- 
+
+    // Name
+    const headerName = targetElement.querySelector('.header-name');
+    const inputName = targetElement.querySelector('.input-name');
+    if (headerName) headerName.textContent = newCookie.name;
+    if (inputName) inputName.value = newCookie.name;
+    targetElement.setAttribute('data-name', newCookie.name);
+    targetElement.setAttribute('data-cookieId', Cookie.hashCode(newCookie));
+
+    // Value
+    const inputValue = targetElement.querySelector('.input-value');
+    if (inputValue) inputValue.value = newCookie.value;
+
+    // Domain & HostOnly (HostOnly affects Domain's disabled state)
+    const inputDomain = targetElement.querySelector('.input-domain');
+    const inputHostOnly = targetElement.querySelector('.input-hostOnly');
+    if (inputDomain) inputDomain.value = newCookie.domain;
+    if (inputHostOnly) inputHostOnly.checked = newCookie.hostOnly;
+    if (inputDomain) inputDomain.disabled = newCookie.hostOnly; // Update disabled state
+
+    // Path
+    const inputPath = targetElement.querySelector('.input-path');
+    const inputPathDefault = targetElement.querySelector('.input-path-default');
+    const inputPathCurrent = targetElement.querySelector('.input-path-current');
+    const inputPathCustom = targetElement.querySelector('.input-path-custom');
+    
+    if (inputPath) inputPath.value = newCookie.path;
+    
+    // Keep path input disabled unless custom path is selected
+    if (inputPath && inputPathDefault && inputPathCurrent && inputPathCustom) {
+      if (inputPathCustom.checked) {
+        inputPath.disabled = false;
+      } else {
+        inputPath.disabled = true;
+      }
     }
 
-    if (this.cookie.name !== oldCookieName) {
-      this.updateName();
+    // Expiration & Session (Session affects Expiration's disabled state)
+    const inputExpiration = targetElement.querySelector('.input-expiration');
+    const inputSession = targetElement.querySelector('.input-session');
+    if (inputExpiration) {
+      inputExpiration.value = this.formatExpirationForDisplay(); // Use updated internal state
+      inputExpiration.disabled = !newCookie.expirationDate;
     }
-    this.updateExtraInfo();
-    if (this.cookie.value !== oldCookieValue) {
-      this.updateValue();
+    if (inputSession) {
+        inputSession.checked = !newCookie.expirationDate;
     }
-    if (this.cookie.domain !== oldCookieDomain) {
-      this.updateDomain();
+
+    // SameSite
+    const inputSameSite = targetElement.querySelector('.input-sameSite');
+    if (inputSameSite) inputSameSite.value = newCookie.sameSite || 'no_restriction';
+
+    // Secure
+    const inputSecure = targetElement.querySelector('.input-secure');
+    if (inputSecure) inputSecure.checked = newCookie.secure;
+
+    // HttpOnly
+    const inputHttpOnly = targetElement.querySelector('.input-httpOnly');
+    if (inputHttpOnly) inputHttpOnly.checked = newCookie.httpOnly;
+    
+    // Always update header extra info display
+    this.updateExtraInfo(targetElement);
+  }
+
+  /**
+   * Updates the extra info related fields in the UI.
+   */
+  updateExtraInfo(targetElement) {
+    // If targetElement wasn't passed (e.g., called directly), try to use this.baseHtml
+    const elementToQuery = targetElement || this.baseHtml;
+    if (!elementToQuery) { 
+      // If still no element, we can't update extra info
+      console.warn("updateExtraInfo called but no target element available.");
+      return;
     }
-    if (this.cookie.path !== oldCookiePath) {
-      this.updatePath();
-    }
-    if (this.cookie.expirationDate !== oldCookieExpiration) {
-      this.updateExpiration();
-    }
-    if (this.cookie.sameSite !== oldCookieSameSite) {
-      this.updateSameSite();
-    }
-    if (this.cookie.hostOnly !== oldCookieHostOnly) {
-      this.updateHostOnly();
-    }
-    if (this.cookie.session !== oldCookieSession) {
-      this.updateSession();
-    }
-    if (this.cookie.secure !== oldCookieSecure) {
-      this.updateSecure();
-    }
-    if (this.cookie.httpOnly !== oldCookieHttpOnly) {
-      this.updateHttpOnly();
+    const headerExtraInfo = elementToQuery.querySelector('.header-extra-info');
+    if (headerExtraInfo) {
+      // Check the option setting before updating
+      if (this.optionHandler && this.optionHandler.getExtraInfo()) {
+        headerExtraInfo.textContent = this.getExtraInfoValue();
+        headerExtraInfo.title = this.getExtraInfoTitle();
+        headerExtraInfo.style.display = ''; // Ensure it's visible
+        this.animateChangeOnNode(headerExtraInfo);
+      } else {
+        // Option is disabled, clear the content and hide the element
+        headerExtraInfo.textContent = '';
+        headerExtraInfo.title = '';
+        headerExtraInfo.style.display = 'none'; // Hide the element
+      }
     }
   }
 
@@ -132,6 +162,7 @@ export class Cookie {
     this.baseHtml = template.querySelector('li');
     this.baseHtml.setAttribute('data-name', this.cookie.name);
     this.baseHtml.id = this.id;
+    this.baseHtml.dataset.cookieId = this.id;
     const form = this.baseHtml.querySelector('form');
     form.setAttribute('data-id', this.id);
     form.id = this.guid;
@@ -176,6 +207,42 @@ export class Cookie {
     const inputPath = form.querySelector('.input-path');
     inputPath.id = 'path-' + this.guid;
     inputPath.value = this.cookie.path;
+    
+    // Set up path option radio buttons
+    const inputPathDefault = form.querySelector('.input-path-default');
+    const inputPathCurrent = form.querySelector('.input-path-current');
+    const inputPathCustom = form.querySelector('.input-path-custom');
+    
+    if (inputPathDefault && inputPathCurrent && inputPathCustom) {
+      // Add IDs to radio buttons
+      inputPathDefault.id = 'path-default-' + this.guid;
+      inputPathCurrent.id = 'path-current-' + this.guid;
+      inputPathCustom.id = 'path-custom-' + this.guid;
+      
+      // Default to "Root (/)" option
+      inputPathDefault.checked = true;
+      inputPath.disabled = true;
+      
+      // Add event listeners to toggle path input field
+      inputPathDefault.addEventListener('change', () => {
+        if (inputPathDefault.checked) {
+          inputPath.disabled = true;
+        }
+      });
+      
+      inputPathCurrent.addEventListener('change', () => {
+        if (inputPathCurrent.checked) {
+          inputPath.disabled = true;
+        }
+      });
+      
+      inputPathCustom.addEventListener('change', () => {
+        if (inputPathCustom.checked) {
+          inputPath.disabled = false;
+          inputPath.focus();
+        }
+      });
+    }
 
     const labelExpiration = form.querySelector('.label-expiration');
     labelExpiration.setAttribute('for', 'expiration-' + this.guid);
@@ -187,7 +254,7 @@ export class Cookie {
     labelSameSite.setAttribute('for', 'sameSite-' + this.guid);
     const inputSameSite = form.querySelector('.input-sameSite');
     inputSameSite.id = 'sameSite-' + this.guid;
-    inputSameSite.value = this.cookie.sameSite;
+    inputSameSite.value = this.cookie.sameSite || 'no_restriction'; // Handle null/undefined sameSite
 
     const labelHostOnly = form.querySelector('.label-hostOnly');
     labelHostOnly.setAttribute('for', 'hostOnly-' + this.guid);
@@ -233,6 +300,7 @@ export class Cookie {
     
     // Add null checks for sidepanel - prevent TypeError if these elements don't exist
     if (copyOptionsButton && copyOptionsMenu) {
+      const copyNameButton = copyOptionsMenu.querySelector('.copy-name');
       const copyValueButton = copyOptionsMenu.querySelector('.copy-value');
       const copyCookieButton = copyOptionsMenu.querySelector('.copy-cookie');
 
@@ -241,25 +309,43 @@ export class Cookie {
         self.toggleCopyOptionsMenu(copyOptionsMenu);
       });
 
+      copyNameButton.addEventListener('click', function (e) {
+        e.stopPropagation();
+        // Dispatch a custom event that cookie-list.js can listen for
+        const cookieId = self.id;
+        const cookieName = self.cookie.name;
+        const customEvent = new CustomEvent('cookie-copy-name', {
+          detail: { cookieId, cookieName },
+          bubbles: true
+        });
+        this.dispatchEvent(customEvent);
+        self.toggleCopyOptionsMenu(copyOptionsMenu); // Close menu after copy
+      });
+
       copyValueButton.addEventListener('click', function (e) {
         e.stopPropagation();
-        self.copyValueToClipboard();
+        // Dispatch a custom event that cookie-list.js can listen for
+        const cookieId = self.id;
+        const cookieValue = self.cookie.value;
+        const customEvent = new CustomEvent('cookie-copy-value', {
+          detail: { cookieId, cookieValue },
+          bubbles: true
+        });
+        this.dispatchEvent(customEvent);
         self.toggleCopyOptionsMenu(copyOptionsMenu); // Close menu after copy
       });
 
       copyCookieButton.addEventListener('click', function (e) {
         e.stopPropagation();
-        self.copyCookieToClipboard();
+        // Dispatch a custom event that cookie-list.js can listen for
+        const cookieId = self.id;
+        const cookie = self.cookie;
+        const customEvent = new CustomEvent('cookie-copy-json', {
+          detail: { cookieId, cookie },
+          bubbles: true
+        });
+        this.dispatchEvent(customEvent);
         self.toggleCopyOptionsMenu(copyOptionsMenu); // Close menu after copy
-      });
-
-      // Add listener to close menu when clicking outside
-      document.addEventListener('click', function (e) {
-        if (!copyOptionsMenu.contains(e.target) && !copyOptionsButton.contains(e.target)) {
-          if (copyOptionsMenu.style.display !== 'none') {
-            self.toggleCopyOptionsMenu(copyOptionsMenu);
-          }
-        }
       });
     }
 
@@ -308,412 +394,411 @@ export class Cookie {
   }
 
   /**
-   * Updates the name of the cookie in the HTML.
+   * Updates the name related fields in the UI.
    */
   updateName() {
-    const nameInput = this.baseHtml.querySelector('#name-' + this.guid);
-    const headerName = this.baseHtml.querySelector('.header-name');
-    const header = this.baseHtml.querySelector('.header');
-    this.baseHtml.setAttribute('data-name', this.cookie.name);
-    nameInput.value = this.cookie.name;
-    headerName.textContent = this.cookie.name;
-
-    this.animateChangeOnNode(header);
-    this.animateChangeOnNode(nameInput);
+    // Redirect to updateHtml method for consistency
+    if (this.cookie) {
+      this.updateHtml(this.cookie);
+    }
   }
 
   /**
-   * Updates the extra info displayed next to the cookie name.
-   */
-  updateExtraInfo() {
-    const header = this.baseHtml.querySelector('.header');
-    const headerExtraInfo = this.baseHtml.querySelector('.header-extra-info');
-    headerExtraInfo.textContent = this.getExtraInfoValue();
-    headerExtraInfo.title = this.getExtraInfoTitle();
-
-    this.animateChangeOnNode(header);
-  }
-
-  /**
-   * Updates the value of the cookie in the HTML.
+   * Updates the value related fields in the UI.
    */
   updateValue() {
-    const valueInput = this.baseHtml.querySelector('#value-' + this.guid);
-    const header = this.baseHtml.querySelector('.header');
-    valueInput.value = this.cookie.value;
-
-    this.animateChangeOnNode(header);
-    this.animateChangeOnNode(valueInput);
+    // Redirect to updateHtml method for consistency
+    if (this.cookie) {
+      this.updateHtml(this.cookie);
+    }
   }
 
   /**
-   * Updates the domain of the cookie in the HTML.
+   * Updates the domain related fields in the UI.
    */
   updateDomain() {
-    const valueInput = this.baseHtml.querySelector('#domain-' + this.guid);
-    const header = this.baseHtml.querySelector('.header');
-    valueInput.value = this.cookie.domain;
-
-    this.animateChangeOnNode(header);
-    this.animateChangeOnNode(valueInput);
+    // Redirect to updateHtml method for consistency
+    if (this.cookie) {
+      this.updateHtml(this.cookie);
+    }
   }
 
   /**
-   * Updates the path of the cookie in the HTML.
+   * Updates the path related fields in the UI.
    */
   updatePath() {
-    const valueInput = this.baseHtml.querySelector('#path-' + this.guid);
-    const header = this.baseHtml.querySelector('.header');
-    valueInput.value = this.cookie.path;
-
-    this.animateChangeOnNode(header);
-    this.animateChangeOnNode(valueInput);
+    // Redirect to updateHtml method for consistency
+    if (this.cookie) {
+      this.updateHtml(this.cookie);
+    }
   }
 
   /**
-   * Updates the expiration of the cookie in the HTML.
+   * Updates the expiration related fields in the UI.
    */
   updateExpiration() {
-    const valueInput = this.baseHtml.querySelector('#expiration-' + this.guid);
-    const header = this.baseHtml.querySelector('.header');
-    valueInput.value = this.formatExpirationForDisplay();
-
-    this.animateChangeOnNode(header);
-    this.animateChangeOnNode(valueInput);
+    // Redirect to updateHtml method for consistency
+    if (this.cookie) {
+      this.updateHtml(this.cookie);
+    }
   }
 
   /**
-   * Updates the SameSite field of the cookie in the HTML.
+   * Updates the same site related fields in the UI.
    */
   updateSameSite() {
-    const valueInput = this.baseHtml.querySelector('#sameSite-' + this.guid);
-    const header = this.baseHtml.querySelector('.header');
-    valueInput.value = this.cookie.sameSite;
-
-    this.animateChangeOnNode(header);
-    this.animateChangeOnNode(valueInput);
+    // Redirect to updateHtml method for consistency
+    if (this.cookie) {
+      this.updateHtml(this.cookie);
+    }
   }
 
   /**
-   * Updates the HostOnly field of the cookie in the HTML.
+   * Updates the host only related fields in the UI.
    */
   updateHostOnly() {
-    const valueInput = this.baseHtml.querySelector('#hostOnly-' + this.guid);
-    const header = this.baseHtml.querySelector('.header');
-    valueInput.checked = this.cookie.hostOnly;
-    this.afterHostOnlyChanged(this.cookie.hostOnly);
-
-    this.animateChangeOnNode(header);
-    this.animateChangeOnNode(valueInput);
+    // Redirect to updateHtml method for consistency
+    if (this.cookie) {
+      this.updateHtml(this.cookie);
+    }
   }
 
   /**
-   * Actions to do whenever the HostOnly input changes.
-   * @param {boolean} inputValue The value of the Session input.
-   */
-  afterHostOnlyChanged(inputValue) {
-    const domainInput = this.baseHtml.querySelector('#domain-' + this.guid);
-    domainInput.disabled = inputValue;
-  }
-
-  /**
-   * Updates the Session field of the cookie in the HTML.
+   * Updates the session related fields in the UI.
    */
   updateSession() {
-    const valueInput = this.baseHtml.querySelector('#session-' + this.guid);
-    const header = this.baseHtml.querySelector('.header');
-    valueInput.checked = !this.cookie.expirationDate;
-    this.afterSessionChanged();
-
-    this.animateChangeOnNode(header);
-    this.animateChangeOnNode(valueInput);
+    // Redirect to updateHtml method for consistency
+    if (this.cookie) {
+      this.updateHtml(this.cookie);
+    }
   }
 
   /**
-   * Actions to do whenever the Session input changes.
-   * @param {boolean} inputValue The value of the Session input.
-   */
-  afterSessionChanged(inputValue) {
-    const expirationInput = this.baseHtml.querySelector(
-      '#expiration-' + this.guid,
-    );
-    expirationInput.disabled = inputValue;
-    if (inputValue) {
-      expirationInput.value = 'No Expiration';
-      return;
-    }
-    if (!this.cookie.expirationDate) {
-      this.cookie.expirationDate =
-        new Date(Date.now() + 1 * (60 * 60 * 1000)).getTime() / 1000;
-    }
-    expirationInput.value = this.formatExpirationForDisplay();
-  }
-
-  /**
-   * Updates the Secure field of the cookie in the HTML.
+   * Updates the secure related fields in the UI.
    */
   updateSecure() {
-    const valueInput = this.baseHtml.querySelector('#secure-' + this.guid);
-    const header = this.baseHtml.querySelector('.header');
-    valueInput.checked = this.cookie.secure;
-
-    this.animateChangeOnNode(header);
-    this.animateChangeOnNode(valueInput);
+    // Redirect to updateHtml method for consistency
+    if (this.cookie) {
+      this.updateHtml(this.cookie);
+    }
   }
 
   /**
-   * Updates the HttpOnly field of the cookie in the HTML.
+   * Updates the http only related fields in the UI.
    */
   updateHttpOnly() {
-    const valueInput = this.baseHtml.querySelector('#httpOnly-' + this.guid);
-    const header = this.baseHtml.querySelector('.header');
-    valueInput.checked = this.cookie.httpOnly;
-
-    this.animateChangeOnNode(header);
-    this.animateChangeOnNode(valueInput);
+    // Redirect to updateHtml method for consistency
+    if (this.cookie) {
+      this.updateHtml(this.cookie);
+    }
   }
 
   /**
-   * Removes the cookie from the HTML.
-   * @param {function} callback Gets called after the element's animation is
-   *     done.
+   * Executes after the value of the host only input is changed by the user.
+   * @param {boolean} inputValue Current value of the input.
+   */
+  afterHostOnlyChanged(inputValue) {
+    const inputDomain = this.baseHtml.querySelector('.input-domain');
+    inputDomain.disabled = inputValue;
+  }
+
+  /**
+   * Executes after the value of the session input is changed by the user.
+   * @param {boolean} inputValue Current value of the input.
+   */
+  afterSessionChanged(inputValue) {
+    const inputExpiration = this.baseHtml.querySelector('.input-expiration');
+    if (inputExpiration) {
+      inputExpiration.disabled = inputValue;
+      if (inputValue) {
+        // Clear expiration value visually if Session is checked
+        inputExpiration.value = ''; 
+      } else {
+        // If unchecking session, repopulate expiration if available
+        // Need to read internal state, not the potentially empty input value
+        inputExpiration.value = this.formatExpirationForDisplay();
+      }
+    }
+  }
+
+  /**
+   * Removes the cookie HTML from the page.
+   * @param {function} callback Called after the animation is completed.
    */
   removeHtml(callback = null) {
-    if (this.isRemoving) {
+    if (!this.baseHtml) {
       return;
     }
 
-    this.isRemoving = true;
-    Animate.toggleSlide(this.baseHtml, () => {
-      this.baseHtml.remove();
-      this.baseHtml = null;
-      this.isRemoving = false;
+    // Use a collapse animation
+    this.baseHtml.style.transition = 'transform 0.3s ease-out, opacity 0.3s ease-out';
+    this.baseHtml.style.transform = 'scaleY(0)';
+    this.baseHtml.style.opacity = '0';
+
+    this.baseHtml.addEventListener('transitionend', () => {
+      if (this.baseHtml && this.baseHtml.parentNode) {
+        this.baseHtml.parentNode.removeChild(this.baseHtml);
+        this.baseHtml = null; // Clear reference
+      }
       if (callback) {
         callback();
       }
-    });
+    }, { once: true });
   }
 
   /**
-   * Animates changes to the HTML.
-   * @param {Element} node Element to animate.
+   * Animates a subtle flash on a node to indicate change.
+   * @param {Element} node Element to apply the animation to.
    */
   animateChangeOnNode(node) {
-    node.classList.remove('anim-value-changed');
+    if (!node) return;
+    node.classList.add('flash-change');
     setTimeout(() => {
-      node.classList.add('anim-value-changed');
-    }, 20);
+      node.classList.remove('flash-change');
+    }, 500); // Animation duration
   }
 
   /**
-   * Shows a little success animation on the cookie HTML.
+   * Runs the success animation on the cookie HTML.
+   * @param {Element} [targetElement] Optional reference to the LI element for targeting.
    */
-  showSuccessAnimation() {
-    if (this.baseHtml) {
-      this.animateSuccessOnNode(this.baseHtml);
+  showSuccessAnimation(targetElement = null) {
+    const elementToQuery = targetElement || this.baseHtml;
+    if (elementToQuery) {
+      // Target the header name specifically for the flash
+      const headerNameNode = elementToQuery.querySelector('.header-name');
+      // this.animateSuccessOnNode(elementToQuery); // Old way - flashed whole item
+      this.animateSuccessOnNode(headerNameNode); // New way - flash only name
     }
   }
 
   /**
-   * Executes a success animation on a node.
-   * @param {Element} node Element to animate.
+   * Animates a green flash on the given node.
+   * @param {Element} node Element to apply the animation to.
    */
   animateSuccessOnNode(node) {
-    Animate.onSuccess(node);
+    // Animate.onSuccess(node); // REMOVE THIS - Function doesn't exist
+    // ADD simple flash animation directly:
+    if (node) {
+      node.classList.add('flash-success');
+      setTimeout(() => {
+        node.classList.remove('flash-success');
+      }, 750); // Keep flash for 750ms
+    }
   }
 
   /**
-   * Formats the expiration date of the cookie for display.
-   * @return {string}
+   * Formats the expiration date for display.
+   * @return {string} The formatted expiration date.
    */
   formatExpirationForDisplay() {
-    return this.cookie.expirationDate
-      ? new Date(this.cookie.expirationDate * 1000)
-      : 'No Expiration';
+    if (!this.cookie.expirationDate) {
+      return '';
+    }
+    const date = new Date(this.cookie.expirationDate * 1000);
+    return date.toLocaleString(); // Use locale-specific format
   }
 
   /**
-   * Formats the expiration date of the cookie for display in a shorter format.
-   * @return {string}
+   * Formats the expiration date for display in the list header.
+   * @return {string} The formatted expiration date.
    */
   formatExpirationForDisplayShort() {
+    if (!this.cookie.expirationDate) {
+      return 'Session';
+    }
     const date = new Date(this.cookie.expirationDate * 1000);
-    date.setMilliseconds(0);
-    return this.cookie.expirationDate
-      ? date.toISOString().split('.')[0] + 'Z'
-      : 'No Expiration';
+    return date.toLocaleDateString(); // Use short date format
   }
 
   /**
-   * Formats a boolean for displaying extra infos
-   * @param {string} name
-   * @param {Boolean} boolValue
-   * @return {string}
+   * Creates a short display representation for boolean flags.
+   * @param {string} name Name of the flag.
+   * @param {boolean} boolValue Value of the flag.
+   * @return {string} A short text representation.
    */
   formatBoolForDisplayShort(name, boolValue) {
-    const emoji = boolValue ? '☑' : '☐';
-    return emoji + ' ' + name;
+    return boolValue ? name : '';
   }
 
   /**
-   * Gets the extra info value for the prefered type.
-   * @return {string}
+   * Creates a string representation for the extra info display.
+   * @return {string} The string representation.
    */
   getExtraInfoValue() {
-    const extraInfoType = this.optionHandler.getExtraInfo();
-    switch (extraInfoType) {
-      case ExtraInfos.Value:
-        return this.cookie.value;
-      case ExtraInfos.Domain:
-        return this.cookie.domain;
-      case ExtraInfos.Path:
-        return this.cookie.path;
+    let text = '';
+    switch (this.optionHandler.getExtraInfo()) {
+      case ExtraInfos.Nothing:
+        text = '';
+        break;
       case ExtraInfos.Expiration:
-        return this.formatExpirationForDisplayShort();
-      case ExtraInfos.Samesite:
-        return this.cookie.sameSite;
-      case ExtraInfos.Hostonly:
-        return this.formatBoolForDisplayShort(
-          'Host Only',
+        text = this.formatExpirationForDisplayShort();
+        break;
+      case ExtraInfos.Domain:
+        text = this.cookie.domain;
+        break;
+      case ExtraInfos.Size:
+        text = this.cookie.value.length + ' B';
+        break;
+      case ExtraInfos.Flags:
+        text += this.formatBoolForDisplayShort(
+          'HostOnly',
           this.cookie.hostOnly,
         );
-      case ExtraInfos.Session:
-        return this.formatBoolForDisplayShort('Session', this.cookie.session);
-      case ExtraInfos.Secure:
-        return this.formatBoolForDisplayShort('Secure', this.cookie.secure);
-      case ExtraInfos.Httponly:
-        return this.formatBoolForDisplayShort(
-          'Http Only',
+        text += this.formatBoolForDisplayShort('Secure', this.cookie.secure);
+        text += this.formatBoolForDisplayShort(
+          'HttpOnly',
           this.cookie.httpOnly,
         );
-      case ExtraInfos.Nothing:
+        break;
       default:
-        return '';
+        // Default to nothing if setting is unknown
+        text = '';
+        break;
     }
+    return text;
   }
 
   /**
-   * Gets the extra info title for the prefered type. Used for when a user
-   * hovers the value.
-   * @return {string}
+   * Creates a title string for the extra info display.
+   * @return {string} The title string.
    */
   getExtraInfoTitle() {
-    const extraInfoType = this.optionHandler.getExtraInfo();
-    switch (extraInfoType) {
-      case ExtraInfos.Value:
-        return 'Value: ' + this.cookie.value;
-      case ExtraInfos.Domain:
-        return 'Domain: ' + this.cookie.domain;
-      case ExtraInfos.Path:
-        return 'Path: ' + this.cookie.path;
-      case ExtraInfos.Expiration:
-        return 'Expiration: ' + this.formatExpirationForDisplay();
-      case ExtraInfos.Samesite:
-        return 'Same Site: ' + this.cookie.sameSite;
-      case ExtraInfos.Hostonly:
-        return 'Host Only: ' + this.cookie.hostOnly;
-      case ExtraInfos.Session:
-        return 'Session: ' + this.cookie.session;
-      case ExtraInfos.Secure:
-        return 'Secure: ' + this.cookie.secure;
-      case ExtraInfos.Httponly:
-        return 'HTTP Only: ' + this.cookie.httpOnly;
+    let title = '';
+    switch (this.optionHandler.getExtraInfo()) {
       case ExtraInfos.Nothing:
+        title = '';
+        break;
+      case ExtraInfos.Expiration:
+        title = `Expiration: ${this.formatExpirationForDisplay()}`;
+        break;
+      case ExtraInfos.Domain:
+        title = `Domain: ${this.cookie.domain}`;
+        break;
+      case ExtraInfos.Size:
+        title = `Value Size: ${this.cookie.value.length} Bytes`;
+        break;
+      case ExtraInfos.Flags:
+        title = `Flags: ${this.cookie.hostOnly ? 'HostOnly ' : ''}${this.cookie.secure ? 'Secure ' : ''}${this.cookie.httpOnly ? 'HttpOnly ' : ''}`;
+        break;
       default:
-        return '';
+        // Default to nothing if setting is unknown
+        title = '';
+        break;
     }
+    return title;
   }
 
   /**
-   * Generates a hashcode to represent a cookie based on its name and domain.
-   * @param {object} cookie A cookie's data.
-   * @return {string} A hashcode.
+   * Create a hash code for a cookie.
+   * @param {object} cookie Cookie to hash.
+   * @return {string} The hash code for the cookie.
    */
   static hashCode(cookie) {
-    const cookieString = cookie.name + cookie.domain;
-    let hash = 0;
-    let i;
-    let chr;
-    if (cookieString.length === 0) return hash;
-    for (i = 0; i < cookieString.length; i++) {
-      chr = cookieString.charCodeAt(i);
+    let hash = 0,
+      i,
+      chr;
+    const str = cookie.name + cookie.domain + cookie.path;
+    if (str.length === 0) return hash;
+    for (i = 0; i < str.length; i++) {
+      chr = str.charCodeAt(i);
       hash = (hash << 5) - hash + chr;
       hash |= 0; // Convert to 32bit integer
     }
-    return hash;
+    return 'c' + hash;
   }
 
   /**
-   * Cleans up resources used by this cookie instance, removing event listeners
-   * and references to DOM elements to prevent memory leaks.
+   * Destroys the cookie object and associated HTML element.
    */
   destroy() {
-    if (!this.baseHtml) {
-      return; // Already destroyed or never generated
-    }
-    
-    const form = this.baseHtml.querySelector('form');
-    if (form) {
-      // Find elements with listeners
-      const inputHostOnly = form.querySelector('.input-hostOnly');
-      const inputSession = form.querySelector('.input-session');
-      const advancedToggleButton = form.querySelector('.advanced-toggle');
-      
-      // TODO: Storing references to listener functions would be cleaner
-      // For now, we rely on the browser to remove listeners when the element is GC'd
-      // after we remove our reference, but explicitly removing would be safer.
-      // We can't easily remove the anonymous functions defined inline.
-    }
-    
-    // Remove the reference to the DOM element
-    this.baseHtml = null;
-    
-    // Optionally, remove other references if needed
-    // this.cookie = null;
-    // this.optionHandler = null;
+    // Remove event listeners if any were added directly
+    // (Currently only on hostOnly/session inputs, handled by removeHtml)
+    this.removeHtml(() => {
+      // Clear internal references after removal
+      this.cookie = null;
+      this.optionHandler = null; 
+    });
   }
-
-  toggleCopyOptionsMenu(menu) {
-    if (!menu) return; // Add null check to prevent errors
+  
+  /**
+   * Toggles the visibility of the copy options menu
+   * @param {HTMLElement} copyOptionsMenu - The menu element to toggle
+   */
+  toggleCopyOptionsMenu(copyOptionsMenu) {
+    if (!copyOptionsMenu) return;
     
-    if (menu.style.display === 'none') {
-      // Close other open menus before opening this one
-      document.querySelectorAll('.copy-options-menu').forEach(otherMenu => {
-        if (otherMenu !== menu) {
-          otherMenu.style.display = 'none';
+    // Check current state
+    const isVisible = copyOptionsMenu.style.display === 'block';
+    
+    // Toggle visibility
+    copyOptionsMenu.style.display = isVisible ? 'none' : 'block';
+    
+    // If we're showing the menu, add a click handler to close it when clicking outside
+    if (!isVisible) {
+      const self = this;
+      const handleClickOutside = function(e) {
+        // Close the menu if the click is outside the menu and its button
+        if (!copyOptionsMenu.contains(e.target) && 
+            !e.target.closest('.copy-options-button')) {
+          copyOptionsMenu.style.display = 'none';
+          document.removeEventListener('click', handleClickOutside);
         }
-      });
-      menu.style.display = 'block';
-    } else {
-      menu.style.display = 'none';
+      };
+      
+      // Add the handler with a small delay to avoid immediate triggering
+      setTimeout(() => {
+        document.addEventListener('click', handleClickOutside);
+      }, 10);
     }
   }
-
-  copyValueToClipboard() {
-    navigator.clipboard.writeText(this.cookie.value).then(() => {
-      this.showSuccessAnimationOnButton('.copy-value'); // Optional: Provide visual feedback
-    }).catch(err => {
-      console.error('Failed to copy value: ', err);
-    });
+  
+  /**
+   * Gets the cookie's value.
+   * Copying will be handled by the main popup script.
+   * @returns {string|null} The cookie value or null.
+   */
+  getCookieValue() {
+    return this.cookie ? this.cookie.value : null;
+  }
+  
+  /**
+   * Gets the cookie's name.
+   * Copying will be handled by the main popup script.
+   * @returns {string|null} The cookie name or null.
+   */
+  getCookieName() {
+    return this.cookie ? this.cookie.name : null;
+  }
+  
+  /**
+   * Gets the entire cookie data as a JSON string.
+   * Copying will be handled by the main popup script.
+   * @returns {string|null} The cookie JSON or null.
+   */
+  getCookieJson() {
+    return this.cookie ? JSON.stringify(this.cookie, null, 2) : null;
   }
 
-  copyCookieToClipboard() {
-    const cookieString = JSON.stringify(this.cookie, null, 2); // Pretty print JSON
-    navigator.clipboard.writeText(cookieString).then(() => {
-      this.showSuccessAnimationOnButton('.copy-cookie'); // Optional: Provide visual feedback
-    }).catch(err => {
-      console.error('Failed to copy cookie: ', err);
-    });
-  }
-
+  /**
+   * Helper to trigger a success animation on a specific button
+   * @param {string} buttonSelector CSS selector for the button
+   */
   showSuccessAnimationOnButton(buttonSelector) {
-    const button = this.baseHtml.querySelector(buttonSelector);
-    if (button) {
-      // Add a temporary success class or visual cue
-      button.classList.add('success-feedback'); 
-      setTimeout(() => {
-        button.classList.remove('success-feedback');
-      }, 1000); // Remove feedback after 1 second
+    if (this.baseHtml) {
+      const button = this.baseHtml.querySelector(buttonSelector);
+      if (button) {
+        const icon = button.querySelector('svg use');
+        const originalHref = icon ? icon.getAttribute('href') : null;
+        if (icon) {
+          icon.setAttribute('href', '../sprites/solid.svg#check');
+          setTimeout(() => {
+            if (originalHref) {
+              icon.setAttribute('href', originalHref);
+            }
+          }, 1500);
+        }
+      }
     }
   }
 }

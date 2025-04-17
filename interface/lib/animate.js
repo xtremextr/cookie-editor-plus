@@ -157,125 +157,151 @@ export class Animate {
     callback = null,
     animationsEnabled = true,
   ) {
-    // PERFORMANCE OPTIMIZATION: Skip animation for initial popup load
-    // Check if this is the first content load by looking for a special attribute
-    if (!container.hasAttribute('data-first-load-complete')) {
-      // This is the first load, so skip animation
-      container.setAttribute('data-first-load-complete', 'true');
-      
-      if (oldPage) {
-        container.removeChild(oldPage);
-      }
+    // If animations are disabled, just swap the pages and call it a day
+    if (!animationsEnabled) {
+      container.innerHTML = '';
       container.appendChild(newPage);
-      if (callback) callback();
+      if (callback) {
+        callback();
+      }
       return;
     }
 
-    // If animations are disabled, simply swap the pages
-    if (!animationsEnabled) {
-      if (oldPage) {
-        container.removeChild(oldPage);
-      }
-      container.appendChild(newPage);
-      if (callback) callback();
-      return;
-    }
+    // Mark container as animating to prevent concurrent animations
+    container.dataset.isAnimating = 'true';
     
-    // If an animation is already in progress (detected by a wrapper element),
-    // clean it up first before starting a new animation
-    const existingWrappers = container.querySelectorAll('.animation-wrapper');
-    if (existingWrappers.length > 0) {
-      existingWrappers.forEach(wrapper => {
-        if (wrapper.parentNode === container) {
-          container.removeChild(wrapper);
-        }
-      });
-    }
-    
-    // PERFORMANCE OPTIMIZATION: Use a simpler, faster animation with opacity instead of translation
-    // for better rendering performance
-    
-    // Create simple containers for the old and new pages
-    const oldContainer = document.createElement('div');
-    oldContainer.className = 'animation-old-page';
-    oldContainer.style.position = 'absolute';
-    oldContainer.style.top = '0';
-    oldContainer.style.left = '0';
-    oldContainer.style.width = '100%';
-    oldContainer.style.height = '100%';
-    oldContainer.style.opacity = '1';
-    oldContainer.style.transition = 'opacity 0.15s ease-out';
-    
-    const newContainer = document.createElement('div');
-    newContainer.className = 'animation-new-page';
+    // Store oldPage and newPage references on container to ensure uniqueness
+    container._currentTransitionOldPage = oldPage;
+    container._currentTransitionNewPage = newPage;
+
+    // Get the current page which has all the styling already applied
+    const oldContainer = oldPage;
+    const newContainer = newPage;
+
+    // Set the container and the old page to have overflow hidden so nothing
+    // leaks out
+    container.style.overflow = 'hidden';
+    oldContainer.style.overflow = 'hidden';
+    newContainer.style.overflow = 'hidden';
+
+    // Position new page appropriately
     newContainer.style.position = 'absolute';
     newContainer.style.top = '0';
-    newContainer.style.left = '0';
     newContainer.style.width = '100%';
     newContainer.style.height = '100%';
+    newContainer.style.transition = 'all 0.3s ease-in-out';
+    newContainer.style.zIndex = '2';
     newContainer.style.opacity = '0';
-    newContainer.style.transition = 'opacity 0.15s ease-in';
     
-    // Add old and new pages to their containers
-    if (oldPage) {
-      oldContainer.appendChild(oldPage);
+    if (direction === 'left') {
+      newContainer.style.transform = 'translateX(100%)';
+      oldContainer.style.transform = 'translateX(0)';
+    } else {
+      newContainer.style.transform = 'translateX(-100%)';
+      oldContainer.style.transform = 'translateX(0)';
     }
-    newContainer.appendChild(newPage);
     
-    // Create a wrapper for the animation
+    // Position old container absolutely as well, making it effectively
+    // the same dimensions
+    oldContainer.style.position = 'absolute';
+    oldContainer.style.top = '0';
+    oldContainer.style.width = '100%';
+    oldContainer.style.height = '100%';
+    oldContainer.style.transition = 'all 0.3s ease-in-out';
+    oldContainer.style.zIndex = '1';
+    oldContainer.style.opacity = '1';
+
+    // Create a wrapper for the new page
     const wrapper = document.createElement('div');
-    wrapper.className = 'animation-wrapper';
     wrapper.style.position = 'relative';
+    wrapper.style.height = `${container.offsetHeight}px`;
     wrapper.style.width = '100%';
-    wrapper.style.height = '100%';
-    wrapper.style.overflow = 'hidden';
     
-    // Add containers to the wrapper
-    wrapper.appendChild(oldContainer);
-    wrapper.appendChild(newContainer);
-    
-    // Replace current content with the wrapper
-    container.innerHTML = '';
-    container.appendChild(wrapper);
-    
-    // Set a timeout to ensure callback is called even if transition events fail
-    let transitionCompleted = false;
-    const safetyTimeoutId = setTimeout(() => {
-      if (!transitionCompleted) {
-        console.log('[Animate.transitionPage] Safety timeout triggered, completing animation manually.');
-        // Clean up animation elements and move new page directly into container
+    let cleanupComplete = false;
+
+    // Cleanup function to finish the transition
+    const cleanup = (cancelled = false) => {
+      // Prevent duplicate cleanups
+      if (cleanupComplete) return;
+      cleanupComplete = true;
+      
+      // Remove animation flag
+      container.dataset.isAnimating = 'false';
+      
+      // Don't proceed if we don't have the same elements anymore
+      if (container._currentTransitionOldPage !== oldPage || 
+          container._currentTransitionNewPage !== newPage) {
+        console.warn("Transition elements changed, skipping cleanup");
+        return;
+      }
+      
+      // Only remove listeners if the elements still exist in the DOM
+      if (document.contains(newContainer)) {
+        newContainer.removeEventListener('transitionend', onTransitionEnd);
+      }
+      
+      // Reset styles
+      oldContainer.style = '';
+      newContainer.style = '';
+      container.style.overflow = '';
+      
+      // Update the DOM
+      if (!cancelled) {
         container.innerHTML = '';
         container.appendChild(newPage);
-        
-        // Call callback if provided
-        if (callback) callback();
-        transitionCompleted = true;
       }
-    }, 500); // 500ms safety timeout (longer than the transition duration)
-    
-    // Start the animation in the next frame to ensure proper rendering
+      
+      if (callback) {
+        callback(cancelled);
+      }
+      
+      // Clear transition references
+      delete container._currentTransitionOldPage;
+      delete container._currentTransitionNewPage;
+    };
+
+    // Add the containers to the DOM
+    wrapper.appendChild(oldContainer);
+    wrapper.appendChild(newContainer);
+    container.innerHTML = '';
+    container.appendChild(wrapper);
+
+    // Handle transition end
+    const onTransitionEnd = function() {
+      cleanup();
+    };
+
+    // Ensure newContainer is valid before adding listener
+    if (newContainer) {
+        newContainer.addEventListener('transitionend', onTransitionEnd, { once: true }); // Use once: true for safety
+    } else {
+         console.error("newContainer is null, cannot add transitionend listener.");
+         // Clean up immediately if newContainer setup failed?
+         cleanup(true); // Treat as cancelled if setup failed
+         return; 
+    }
+
+    // Trigger the animation using requestAnimationFrame for smoothness
     requestAnimationFrame(() => {
+      if (direction === 'left') {
+        oldContainer.style.transform = 'translateX(-100%)';
+        newContainer.style.transform = 'translateX(0)';
+      } else {
+        oldContainer.style.transform = 'translateX(100%)';
+        newContainer.style.transform = 'translateX(0)';
+      }
+      
       oldContainer.style.opacity = '0';
       newContainer.style.opacity = '1';
       
-      // Listen for the transition to finish
-      newContainer.addEventListener('transitionend', function onTransitionEnd() {
-        if (!transitionCompleted) {
-          // Clean up animation elements and move new page directly into container
-          container.innerHTML = '';
-          container.appendChild(newPage);
-          
-          // Call callback if provided
-          if (callback) callback();
-          
-          // Mark as completed and clear the safety timeout
-          transitionCompleted = true;
-          clearTimeout(safetyTimeoutId);
-          
-          // Remove the event listener to prevent memory leaks
-          newContainer.removeEventListener('transitionend', onTransitionEnd);
-        }
-      });
+      // Fallback timeout in case transitionend doesn't fire reliably
+      setTimeout(() => {
+         // Check if cleanup hasn't already run
+         if (container.dataset.isAnimating === 'true' && !cleanupComplete) {
+            console.warn("TransitionEnd event did not fire, cleaning up via timeout.");
+            cleanup(); 
+         }
+      }, 400); // A bit longer than the transition duration (0.3s)
     });
   }
 

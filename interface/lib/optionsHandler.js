@@ -177,9 +177,13 @@ export class OptionsHandler extends EventEmitter {
    * @return {Themes} One of the supported theme option.
    */
   getTheme() {
+    // If options haven't been loaded yet, return auto
+    if (this.options === null || this.options.theme === null || this.options.theme === undefined) {
+      return Themes.Auto;
+    }
+    
     let theme = this.options.theme;
     if (!this.isThemeValid(theme)) {
-      
       theme = Themes.Auto;
       this.setTheme(theme);
     }
@@ -190,8 +194,12 @@ export class OptionsHandler extends EventEmitter {
    * @param {Themes} theme One of the supported theme option.
    */
   setTheme(theme) {
+    // If options haven't been loaded yet, don't try to save
+    if (this.options === null) {
+      return;
+    }
+    
     if (!this.isThemeValid(theme)) {
-      
       return;
     }
     this.options.theme = theme;
@@ -244,6 +252,29 @@ export class OptionsHandler extends EventEmitter {
    */
   setAdsEnabled(adsEnabled) {
     this.options.adsEnabled = adsEnabled;
+    this.saveOptions();
+  }
+
+  /**
+   * Gets the search options configuration.
+   * @return {object} Object containing searchNames and searchValues booleans.
+   */
+  getSearchOptions() {
+    if (!this.options.searchOptions) {
+      this.options.searchOptions = {
+        searchNames: true,
+        searchValues: false
+      };
+    }
+    return this.options.searchOptions;
+  }
+
+  /**
+   * Sets the search options configuration.
+   * @param {object} searchOptions Object containing searchNames and searchValues booleans.
+   */
+  setSearchOptions(searchOptions) {
+    this.options.searchOptions = searchOptions;
     this.saveOptions();
   }
 

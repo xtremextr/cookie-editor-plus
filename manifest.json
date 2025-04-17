@@ -1,9 +1,9 @@
 {
 	"manifest_version": 3,
-	"name": "Cookie Editor +",
+	"name": "Cookie Editor Plus",
 	"short_name": "Cookie Editor",
-	"version": "2.5.1",
-	"author": "Moustachauve",
+	"version": "2.8.7",
+	"author": "X",
 	"description": "A powerful cookie editor that lets you create, edit, and delete cookies.",
 	"offline_enabled": true,
 	"minimum_chrome_version": "102",

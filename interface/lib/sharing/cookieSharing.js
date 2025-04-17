@@ -321,12 +321,6 @@ export function extractSharedDataFromUrl(url) {
         // Parse the parameters from the URL
         const params = new URLSearchParams(encodedParams);
         
-        // Log the params for debugging
-        console.log('Extracted encrypted profile params:', 
-          params.has('data') ? 'has data' : 'no data',
-          params.has('salt') ? 'has salt' : 'no salt',
-          params.has('iv') ? 'has iv' : 'no iv');
-        
         // We need all these parameters for successful decryption
         if (params.has('data') && params.has('salt') && params.has('iv')) {
           return {
@@ -368,12 +362,6 @@ export function extractSharedDataFromUrl(url) {
       try {
         // Extract and parse the parameters
         const params = new URLSearchParams(encodedParams);
-        
-        // Log the params for debugging
-        console.log('Extracted encrypted cookie params:', 
-          params.has('data') ? 'has data' : 'no data',
-          params.has('salt') ? 'has salt' : 'no salt',
-          params.has('iv') ? 'has iv' : 'no iv');
         
         // We need all these parameters for successful decryption
         if (params.has('data') && params.has('salt') && params.has('iv')) {

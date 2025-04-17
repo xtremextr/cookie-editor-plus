@@ -29,6 +29,19 @@ export class ProfileManager extends EventEmitter {
   }
 
   /**
+   * Strips www. from the beginning of a domain if present.
+   * @param {string} domain - The domain name
+   * @return {string} The canonical domain name (without www.)
+   * @private
+   */
+  _getCanonicalDomain(domain) {
+    if (typeof domain === 'string' && domain.toLowerCase().startsWith('www.')) {
+      return domain.substring(4);
+    }
+    return domain;
+  }
+
+  /**
    * Gets domain from a URL
    * @param {string} url - The URL to extract domain from
    * @return {string} The domain name
@@ -109,16 +122,18 @@ export class ProfileManager extends EventEmitter {
    * @return {Promise<Object>} Object containing domain-specific profiles
    */
   async getProfilesForDomain(domain) {
+    const canonicalDomain = this._getCanonicalDomain(domain);
     // Check domain-specific cache first
-    if (this._isCacheValid() && this.cache.domainProfiles[domain]) {
-      return this.cache.domainProfiles[domain];
+    if (this._isCacheValid() && this.cache.domainProfiles[canonicalDomain]) {
+      return this.cache.domainProfiles[canonicalDomain];
     }
     
     const profiles = await this.getAllProfiles();
-    const domainProfiles = profiles[domain] || {};
+    // Use canonicalDomain for lookup
+    const domainProfiles = profiles[canonicalDomain] || {};
     
     // Update domain-specific cache
-    this.cache.domainProfiles[domain] = domainProfiles;
+    this.cache.domainProfiles[canonicalDomain] = domainProfiles;
     
     return domainProfiles;
   }
@@ -129,16 +144,18 @@ export class ProfileManager extends EventEmitter {
    * @return {Promise<Object>} Object containing domain-specific metadata
    */
   async getProfileMetadataForDomain(domain) {
+    const canonicalDomain = this._getCanonicalDomain(domain);
     // Check domain-specific cache first
-    if (this._isCacheValid() && this.cache.domainMetadata[domain]) {
-      return this.cache.domainMetadata[domain];
+    if (this._isCacheValid() && this.cache.domainMetadata[canonicalDomain]) {
+      return this.cache.domainMetadata[canonicalDomain];
     }
     
     const metadata = await this.getAllProfilesMetadata();
-    const domainMetadata = metadata[domain] || { lastLoaded: null, loadTimestamp: null, modified: false };
+    // Use canonicalDomain for lookup
+    const domainMetadata = metadata[canonicalDomain] || { lastLoaded: null, loadTimestamp: null, modified: false };
     
     // Update domain-specific cache
-    this.cache.domainMetadata[domain] = domainMetadata;
+    this.cache.domainMetadata[canonicalDomain] = domainMetadata;
     
     return domainMetadata;
   }
@@ -149,6 +166,7 @@ export class ProfileManager extends EventEmitter {
    * @return {Promise<string[]>} Array of profile names
    */
   async getProfileNamesForDomain(domain) {
+    // getProfilesForDomain already handles canonical domain
     const domainProfiles = await this.getProfilesForDomain(domain);
     return Object.keys(domainProfiles);
   }
@@ -157,11 +175,33 @@ export class ProfileManager extends EventEmitter {
    * Gets a specific profile's cookies
    * @param {string} domain - Domain the profile belongs to
    * @param {string} profileName - Name of the profile to retrieve
-   * @return {Promise<Array>} Array of cookies in the profile
+   * @return {Promise<Array|Object|null>} Array of cookies in the profile, or profile object with cookies property
    */
   async getProfile(domain, profileName) {
-    const domainProfiles = await this.getProfilesForDomain(domain);
-    return domainProfiles[profileName] || [];
+    // getProfilesForDomain already handles canonical domain
+    try {
+      const domainProfiles = await this.getProfilesForDomain(domain);
+      
+      if (!domainProfiles || !domainProfiles[profileName]) {
+        console.warn(`Profile not found: ${profileName} for domain ${this._getCanonicalDomain(domain)}`); // Log canonical domain
+        return null;
+      }
+      
+      const profile = domainProfiles[profileName];
+      
+      // Log key profile data for debugging without exposing sensitive values
+      console.log(`Retrieved profile ${profileName} for ${this._getCanonicalDomain(domain)}:`, 
+                  Array.isArray(profile) ? 
+                  `Array with ${profile.length} cookies` : 
+                  (profile && typeof profile === 'object' ? 
+                   `Object with keys: ${Object.keys(profile).join(', ')}` : 
+                   `Unexpected type: ${typeof profile}`));
+      
+      return profile;
+    } catch (error) {
+      console.error(`Error retrieving profile ${profileName} for ${this._getCanonicalDomain(domain)}:`, error);
+      return null;
+    }
   }
 
   /**
@@ -172,7 +212,8 @@ export class ProfileManager extends EventEmitter {
    * @return {Promise<boolean>} Success status
    */
   async saveProfile(domain, profileName, cookies) {
-    if (!domain || !profileName || !cookies) {
+    const canonicalDomain = this._getCanonicalDomain(domain);
+    if (!canonicalDomain || !profileName || !cookies) {
       return false;
     }
     
@@ -180,13 +221,13 @@ export class ProfileManager extends EventEmitter {
       // Get all profiles
       const profiles = await this.getAllProfiles();
       
-      // Initialize domain entry if needed
-      if (!profiles[domain]) {
-        profiles[domain] = {};
+      // Initialize domain entry if needed (use canonical)
+      if (!profiles[canonicalDomain]) {
+        profiles[canonicalDomain] = {};
       }
       
-      // Save the profile
-      profiles[domain][profileName] = cookies;
+      // Save the profile (use canonical)
+      profiles[canonicalDomain][profileName] = cookies;
       
       // Store updated profiles
       await this.storageHandler.setLocal(this.profileStorageKey, profiles);
@@ -195,7 +236,7 @@ export class ProfileManager extends EventEmitter {
       this._invalidateCache();
       
       // Emit event for listeners
-      this.emit('profileSaved', { domain, profileName });
+      this.emit('profileSaved', { domain: canonicalDomain, profileName }); // Emit canonical domain
       
       return true;
     } catch (error) {
@@ -205,49 +246,49 @@ export class ProfileManager extends EventEmitter {
   }
 
   /**
-   * Marks a profile as loaded for a domain
+   * Marks a profile as loaded for a domain, updating metadata.
+   * This resets the modified flag.
    * @param {string} domain - Domain the profile belongs to
    * @param {string} profileName - Name of the loaded profile
-   * @param {Array} cookies - Cookies in the loaded profile (for state tracking)
    * @return {Promise<boolean>} Success status
    */
-  async markProfileAsLoaded(domain, profileName, cookies) {
-    if (!domain || !profileName) {
+  async setProfileAsLoaded(domain, profileName) {
+    const canonicalDomain = this._getCanonicalDomain(domain);
+    if (!canonicalDomain || !profileName) {
+      console.warn('setProfileAsLoaded called with invalid canonical domain or profileName', { canonicalDomain, profileName });
       return false;
     }
-    
+
     try {
       // Get all metadata
       const metadata = await this.getAllProfilesMetadata();
-      
-      // Initialize domain entry if needed
-      if (!metadata[domain]) {
-        metadata[domain] = {};
+
+      // Initialize domain entry if needed (use canonical)
+      if (!metadata[canonicalDomain]) {
+        metadata[canonicalDomain] = {};
       }
-      
-      // Update metadata
-      metadata[domain] = {
+
+      // Update metadata for the domain (use canonical)
+      metadata[canonicalDomain] = {
+        ...metadata[canonicalDomain], // Preserve any other potential metadata
         lastLoaded: profileName,
         loadTimestamp: Date.now(),
-        modified: false,
-        cookieCount: cookies.length // Store the count for quick reference
+        modified: false // Reset modified status on successful load
       };
-      
+
       // Store updated metadata
       await this.storageHandler.setLocal(this.metadataStorageKey, metadata);
-      
-      // Create hash map of normalized cookies for faster comparisons
-      this.currentCookieState[domain] = this._createCookieHashMap(cookies);
-      
+
       // Invalidate cache
       this._invalidateCache();
-      
+
       // Emit event for listeners
-      this.emit('profileLoaded', { domain, profileName, cookieCount: cookies.length });
-      
+      this.emit('profileLoaded', { domain: canonicalDomain, profileName }); // Emit canonical domain
+
+      console.log(`Profile ${profileName} marked as loaded for domain ${canonicalDomain}.`);
       return true;
     } catch (error) {
-      console.error('Error updating profile metadata:', error);
+      console.error(`Error marking profile ${profileName} as loaded for ${canonicalDomain}:`, error);
       return false;
     }
   }
@@ -258,35 +299,49 @@ export class ProfileManager extends EventEmitter {
    * @return {Promise<boolean>} Success status
    */
   async markCookiesAsModified(domain) {
-    if (!domain) {
+    const canonicalDomain = this._getCanonicalDomain(domain);
+    if (!canonicalDomain) {
+      console.warn('markCookiesAsModified called with invalid canonical domain', { canonicalDomain });
       return false;
     }
     
     try {
-      // Get all metadata
-      const metadata = await this.getAllProfilesMetadata();
-      
-      // Skip if no loaded profile for this domain
-      if (!metadata[domain] || !metadata[domain].lastLoaded) {
-        return false;
-      }
-      
-      // Update modified flag
-      metadata[domain].modified = true;
-      
-      // Store updated metadata
-      await this.storageHandler.setLocal(this.metadataStorageKey, metadata);
-      
-      // Invalidate cache
-      this._invalidateCache();
-      
-      // Emit event for listeners
-      this.emit('cookiesModified', { domain });
-      
-      return true;
+        // Get all metadata
+        const metadata = await this.getAllProfilesMetadata();
+        
+        // Only proceed if metadata exists for this domain and a profile was loaded
+        if (metadata[canonicalDomain] && metadata[canonicalDomain].lastLoaded) {
+            // Check if already marked as modified
+            if (metadata[canonicalDomain].modified) {
+                // console.log(`Cookies for ${canonicalDomain} already marked as modified.`);
+                return false; // No change needed
+            }
+            
+            // Mark as modified
+            metadata[canonicalDomain].modified = true;
+            
+            // Store updated metadata
+            await this.storageHandler.setLocal(this.metadataStorageKey, metadata);
+            
+            // Invalidate cache only for this domain's metadata
+            if (this.cache.domainMetadata[canonicalDomain]) {
+              this.cache.domainMetadata[canonicalDomain].modified = true;
+            }
+            // Optionally invalidate the full metadata cache if simpler
+            // this._invalidateCache(); 
+            
+            // Emit event
+            this.emit('profileModified', { domain: canonicalDomain, profileName: metadata[canonicalDomain].lastLoaded });
+            
+            console.log(`Cookies for domain ${canonicalDomain} marked as modified.`);
+            return true;
+        } else {
+            // console.log(`No loaded profile found for ${canonicalDomain}, cannot mark as modified.`);
+            return false; // No profile loaded for this domain
+        }
     } catch (error) {
-      console.error('Error marking cookies as modified:', error);
-      return false;
+        console.error(`Error marking cookies as modified for ${canonicalDomain}:`, error);
+        return false;
     }
   }
 
@@ -297,67 +352,69 @@ export class ProfileManager extends EventEmitter {
    * @return {Promise<boolean>} True if modified, false if matches or no profile loaded
    */
   async checkIfCookiesModified(domain, currentCookies) {
-    if (!domain) {
+    const canonicalDomain = this._getCanonicalDomain(domain);
+    if (!canonicalDomain) {
+      console.warn('checkIfCookiesModified called with invalid canonical domain', { canonicalDomain });
       return false;
     }
     
     try {
-      // Get metadata to check if we have a loaded profile
-      const metadata = await this.getAllProfilesMetadata();
-      if (!metadata[domain] || !metadata[domain].lastLoaded) {
-        return false;
-      }
-      
-      // An empty array (or null/undefined) with a loaded profile should be marked as modified
-      if (!currentCookies || currentCookies.length === 0) {
-        // If we had cookies before (count > 0) and now have none, it's definitely modified
-        if (metadata[domain].cookieCount > 0) {
-          await this.markCookiesAsModified(domain);
-          return true;
-        }
-      }
-      
-      // If we don't have a cookie state to compare against, but have metadata,
-      // we need to load the profile data for comparison
-      if (!this.currentCookieState[domain]) {
-        // Get the profile to recreate the cookie state
-        const profileName = metadata[domain].lastLoaded;
-        const profile = await this.getProfile(domain, profileName);
+        // Get metadata for the domain
+        const metadata = await this.getProfileMetadataForDomain(canonicalDomain); // Uses canonical domain internally
         
-        if (profile && profile.length > 0) {
-          // Recreate the cookie state
-          this.currentCookieState[domain] = this._createCookieHashMap(profile);
-        } else {
-          // No profile data found, but metadata exists - consider as unmodified
-          return false;
+        // If no profile is loaded, they can't be modified relative to a profile
+        if (!metadata.lastLoaded) {
+            console.log(`[checkIfCookiesModified] No profile loaded for ${canonicalDomain}.`);
+            // Ensure 'modified' is false if no profile is loaded
+            if (metadata.modified) {
+                await this.resetModifiedStatus(canonicalDomain);
+                return true; // Status changed from modified->false
+            }
+            return false; // Status was already false
         }
-      }
-      
-      // Quick count check - if counts differ, cookies must be modified
-      if (metadata[domain].cookieCount !== currentCookies.length) {
-        await this.markCookiesAsModified(domain);
-        return true;
-      }
-      
-      // Create hash map of current cookies
-      const currentCookieMap = this._createCookieHashMap(currentCookies);
-      
-      // Compare cookie maps
-      const areEqual = this._compareCookieMaps(
-        currentCookieMap,
-        this.currentCookieState[domain]
-      );
-      
-      // If not equal, mark as modified
-      if (!areEqual) {
-        await this.markCookiesAsModified(domain);
-        return true;
-      }
-      
-      return false;
+        
+        const loadedProfileName = metadata.lastLoaded;
+        
+        // Get the cookies from the currently loaded profile
+        const loadedProfile = await this.getProfile(canonicalDomain, loadedProfileName); // Uses canonical domain internally
+        
+        let loadedCookies = [];
+        if (Array.isArray(loadedProfile)) {
+          loadedCookies = loadedProfile;
+        } else if (loadedProfile && Array.isArray(loadedProfile.cookies)) {
+          loadedCookies = loadedProfile.cookies;
+        } else {
+          console.warn(`[checkIfCookiesModified] Loaded profile "${loadedProfileName}" for ${canonicalDomain} has unexpected structure. Cannot compare.`);
+          // If we can't compare, should we assume modified or not? Let's assume not modified.
+          if (metadata.modified) {
+             await this.resetModifiedStatus(canonicalDomain);
+             return true; // Status changed
+          }
+          return false; // Status was already false
+        }
+        
+        // Compare current cookies with loaded profile cookies
+        const currentMap = this._createCookieHashMap(currentCookies);
+        const loadedMap = this._createCookieHashMap(loadedCookies);
+        const areDifferent = this._compareCookieMaps(currentMap, loadedMap);
+        
+        console.log(`[checkIfCookiesModified] Comparison result for ${canonicalDomain} (${loadedProfileName}):`, areDifferent ? 'DIFFERENT' : 'SAME');
+        
+        // Update modified status if it changed
+        let statusChanged = false;
+        if (areDifferent && !metadata.modified) {
+            await this.markCookiesAsModified(canonicalDomain); // Uses canonical domain internally
+            statusChanged = true;
+        } else if (!areDifferent && metadata.modified) {
+            await this.resetModifiedStatus(canonicalDomain);
+            statusChanged = true;
+        }
+        
+        return areDifferent || statusChanged;
+        
     } catch (error) {
-      console.error('Error checking if cookies are modified:', error);
-      return false;
+        console.error(`Error checking if cookies modified for ${canonicalDomain}:`, error);
+        return false; // Return false on error, don't change state
     }
   }
   
@@ -402,7 +459,7 @@ export class ProfileManager extends EventEmitter {
    * Compares two cookie maps for equality
    * @param {Object} map1 - First cookie map
    * @param {Object} map2 - Second cookie map
-   * @return {boolean} True if maps are equal
+   * @return {boolean} True if maps are different (not equal)
    * @private
    */
   _compareCookieMaps(map1, map2) {
@@ -411,28 +468,42 @@ export class ProfileManager extends EventEmitter {
     const keys2 = Object.keys(map2);
     
     if (keys1.length !== keys2.length) {
-      return false;
+      console.log(`Cookie count mismatch: ${keys1.length} vs ${keys2.length}`);
+      return true; // Maps are different
     }
+    
+    // List of dynamic cookies that change frequently by themselves
+    const dynamicCookies = ['_dd_s', 'datadome']; 
     
     // Check for presence of all keys
     for (const key of keys1) {
       if (!map2[key]) {
-        return false;
+        console.log(`Cookie key missing from second map: ${key}`);
+        return true; // Maps are different
       }
       
       const cookie1 = map1[key];
       const cookie2 = map2[key];
       
+      // Skip detailed comparison for known dynamic cookies
+      const cookieName = key.split('|')[0];
+      if (dynamicCookies.includes(cookieName)) {
+        console.log(`Skipping detailed comparison for dynamic cookie: ${cookieName}`);
+        continue;
+      }
+      
       // Compare essential properties (value is most important as name/domain/path are in key)
       if (cookie1.value !== cookie2.value) {
-        return false;
+        console.log(`Cookie value mismatch for ${key}: "${cookie1.value}" vs "${cookie2.value}"`);
+        return true; // Maps are different
       }
       
       // These flags are important for security, so compare them
       if (cookie1.secure !== cookie2.secure || 
           cookie1.httpOnly !== cookie2.httpOnly || 
           cookie1.hostOnly !== cookie2.hostOnly) {
-        return false;
+        console.log(`Cookie flags mismatch for ${key}: secure=${cookie1.secure}/${cookie2.secure}, httpOnly=${cookie1.httpOnly}/${cookie2.httpOnly}, hostOnly=${cookie1.hostOnly}/${cookie2.hostOnly}`);
+        return true; // Maps are different
       }
       
       // For session cookies, don't compare expiration
@@ -440,12 +511,13 @@ export class ProfileManager extends EventEmitter {
         // Allow slight differences in expiration (within 1 minute)
         const diff = Math.abs(cookie1.expirationDate - cookie2.expirationDate);
         if (diff > 60) { // More than 60 seconds difference
-          return false;
+          console.log(`Cookie expiration mismatch for ${key}: ${cookie1.expirationDate} vs ${cookie2.expirationDate}, diff: ${diff}s`);
+          return true; // Maps are different
         }
       }
     }
     
-    return true;
+    return false; // Maps are equal (not different)
   }
 
   /**
@@ -455,37 +527,41 @@ export class ProfileManager extends EventEmitter {
    * @return {Promise<boolean>} Success status
    */
   async deleteProfile(domain, profileName) {
+    const canonicalDomain = this._getCanonicalDomain(domain);
     try {
       // Get all profiles
       const profiles = await this.getAllProfiles();
       
-      // Check if domain and profile exist
-      if (!profiles[domain] || !profiles[domain][profileName]) {
+      // Check if domain and profile exist (use canonical)
+      if (!profiles[canonicalDomain] || !profiles[canonicalDomain][profileName]) {
         return false;
       }
       
-      // Delete the profile
-      delete profiles[domain][profileName];
+      // Delete the profile (use canonical)
+      delete profiles[canonicalDomain][profileName];
       
-      // Clean up empty domain if needed
-      if (Object.keys(profiles[domain]).length === 0) {
-        delete profiles[domain];
+      // Clean up empty domain if needed (use canonical)
+      if (Object.keys(profiles[canonicalDomain]).length === 0) {
+        delete profiles[canonicalDomain];
       }
       
       // Store updated profiles
       await this.storageHandler.setLocal(this.profileStorageKey, profiles);
       
-      // Update metadata if this was the last loaded profile
+      // Update metadata if this was the last loaded profile (use canonical)
       const metadata = await this.getAllProfilesMetadata();
-      if (metadata[domain] && metadata[domain].lastLoaded === profileName) {
-        metadata[domain].lastLoaded = null;
-        metadata[domain].modified = false;
+      if (metadata[canonicalDomain] && metadata[canonicalDomain].lastLoaded === profileName) {
+        metadata[canonicalDomain].lastLoaded = null;
+        metadata[canonicalDomain].modified = false;
         await this.storageHandler.setLocal(this.metadataStorageKey, metadata);
       }
       
+      // Invalidate cache
+      this._invalidateCache();
+
       // Emit event for listeners
-      this.emit('profileDeleted', { domain, profileName });
-      
+      this.emit('profileDeleted', { domain: canonicalDomain, profileName }); // Emit canonical domain
+
       return true;
     } catch (error) {
       console.error('Error deleting profile:', error);
@@ -511,39 +587,59 @@ export class ProfileManager extends EventEmitter {
   async importProfiles(jsonString, replace = true) {
     try {
       // Parse the JSON
-      const importedProfiles = JSON.parse(jsonString);
-      
+      const importedData = JSON.parse(jsonString);
+
       // Validate basic structure
-      if (typeof importedProfiles !== 'object') {
-        return false;
+      if (typeof importedData !== 'object' || importedData === null) {
+         throw new Error('Invalid import data: Not an object.');
       }
-      
+
+      // Normalize domain keys in the imported data
+      const importedProfiles = {};
+      for (const domain in importedData) {
+        const canonicalDomain = this._getCanonicalDomain(domain);
+        if (!importedProfiles[canonicalDomain]) {
+          importedProfiles[canonicalDomain] = {};
+        }
+        // Merge profiles under the canonical domain
+        Object.assign(importedProfiles[canonicalDomain], importedData[domain]);
+      }
+
+
       if (replace) {
-        // Replace all profiles
+        // Replace all profiles with the normalized ones
         await this.storageHandler.setLocal(this.profileStorageKey, importedProfiles);
+         // Clear all metadata when replacing profiles
+        await this.storageHandler.setLocal(this.metadataStorageKey, {});
       } else {
         // Merge with existing profiles
-        const currentProfiles = await this.getAllProfiles();
-        
+        const currentProfiles = await this.getAllProfiles(); // Already uses canonical keys internally
+
         // Merge domains
-        for (const domain in importedProfiles) {
-          if (!currentProfiles[domain]) {
-            currentProfiles[domain] = {};
+        for (const canonicalDomain in importedProfiles) {
+          if (!currentProfiles[canonicalDomain]) {
+            currentProfiles[canonicalDomain] = {};
           }
-          
+
           // Merge profiles within domain
-          for (const profileName in importedProfiles[domain]) {
-            currentProfiles[domain][profileName] = importedProfiles[domain][profileName];
-          }
+          Object.assign(currentProfiles[canonicalDomain], importedProfiles[canonicalDomain]);
+          // for (const profileName in importedProfiles[canonicalDomain]) {
+          //   currentProfiles[canonicalDomain][profileName] = importedProfiles[canonicalDomain][profileName];
+          // }
         }
-        
+
         // Save merged profiles
         await this.storageHandler.setLocal(this.profileStorageKey, currentProfiles);
+        // Note: Merging doesn't automatically clear metadata for existing domains.
+        // Consider if metadata should be updated/cleared during merge.
       }
       
+      // Invalidate cache after import/replace
+      this._invalidateCache();
+
       // Emit event for listeners
       this.emit('profilesImported');
-      
+
       return true;
     } catch (error) {
       console.error('Error importing profiles:', error);
@@ -559,50 +655,79 @@ export class ProfileManager extends EventEmitter {
    * @return {Promise<boolean>} Success status
    */
   async renameProfile(domain, oldName, newName) {
-    if (!domain || !oldName || !newName || oldName === newName) {
+    const canonicalDomain = this._getCanonicalDomain(domain);
+    if (!canonicalDomain || !oldName || !newName || oldName === newName) {
       return false;
     }
     
     try {
-      // Get all profiles
-      const profiles = await this.getAllProfiles();
-      
-      // Check if domain and old profile name exist
-      if (!profiles[domain] || !profiles[domain][oldName]) {
-        return false;
-      }
-      
-      // Check if new name already exists
-      if (profiles[domain][newName]) {
-        return false;
-      }
-      
-      // Store the profile data
-      const profileData = profiles[domain][oldName];
-      
-      // Delete the old profile
-      delete profiles[domain][oldName];
-      
-      // Create the new profile with the same data
-      profiles[domain][newName] = profileData;
-      
-      // Store updated profiles
-      await this.storageHandler.setLocal(this.profileStorageKey, profiles);
-      
-      // Update metadata if this was the last loaded profile
-      const metadata = await this.getAllProfilesMetadata();
-      if (metadata[domain] && metadata[domain].lastLoaded === oldName) {
-        metadata[domain].lastLoaded = newName;
-        await this.storageHandler.setLocal(this.metadataStorageKey, metadata);
-      }
-      
-      // Emit event for listeners
-      this.emit('profileRenamed', { domain, oldName, newName });
-      
-      return true;
+        // Get all profiles
+        const profiles = await this.getAllProfiles(); // Uses canonical
+        
+        // Check if domain exists and old name exists, and new name doesn't exist
+        if (!profiles[canonicalDomain] || !profiles[canonicalDomain][oldName] || profiles[canonicalDomain][newName]) {
+            console.warn(`Rename failed: Profile ${oldName} not found or ${newName} already exists for ${canonicalDomain}`);
+            return false;
+        }
+        
+        // Rename the profile
+        profiles[canonicalDomain][newName] = profiles[canonicalDomain][oldName];
+        delete profiles[canonicalDomain][oldName];
+        
+        // Store updated profiles
+        await this.storageHandler.setLocal(this.profileStorageKey, profiles);
+        
+        // Update metadata if the renamed profile was the last loaded one
+        const metadata = await this.getAllProfilesMetadata(); // Uses canonical
+        if (metadata[canonicalDomain] && metadata[canonicalDomain].lastLoaded === oldName) {
+            metadata[canonicalDomain].lastLoaded = newName;
+            // Keep 'modified' status as is, since the cookies themselves haven't changed
+            await this.storageHandler.setLocal(this.metadataStorageKey, metadata);
+        }
+        
+        // Invalidate cache
+        this._invalidateCache();
+        
+        // Emit event
+        this.emit('profileRenamed', { domain: canonicalDomain, oldName, newName }); // Emit canonical
+        
+        return true;
     } catch (error) {
-      console.error('Error renaming profile:', error);
-      return false;
+        console.error(`Error renaming profile ${oldName} to ${newName} for ${canonicalDomain}:`, error);
+        return false;
     }
   }
+
+  /**
+   * Resets the modified status for a domain's metadata.
+   * Internal helper used by checkIfCookiesModified.
+   * @param {string} domain - The canonical domain.
+   * @return {Promise<boolean>} Success status
+   * @private
+   */
+   async resetModifiedStatus(domain) {
+       const canonicalDomain = this._getCanonicalDomain(domain); // Ensure canonical
+       if (!canonicalDomain) return false;
+       
+       try {
+           const metadata = await this.getAllProfilesMetadata();
+           if (metadata[canonicalDomain] && metadata[canonicalDomain].modified) {
+               metadata[canonicalDomain].modified = false;
+               await this.storageHandler.setLocal(this.metadataStorageKey, metadata);
+               
+               // Update cache
+               if (this.cache.domainMetadata[canonicalDomain]) {
+                   this.cache.domainMetadata[canonicalDomain].modified = false;
+               }
+               
+               this.emit('profileUnmodified', { domain: canonicalDomain, profileName: metadata[canonicalDomain].lastLoaded });
+               console.log(`Reset modified status for ${canonicalDomain}.`);
+               return true;
+           }
+           return false; // Not modified or no metadata
+       } catch (error) {
+           console.error(`Error resetting modified status for ${canonicalDomain}:`, error);
+           return false;
+       }
+   }
 } 

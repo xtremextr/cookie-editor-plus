@@ -336,6 +336,34 @@
           <label for="value-create">Value</label>
           <textarea name="value" id="value-create"></textarea>
         </div>
+        <div class="advanced-form show">
+          <div>
+            <label class="path-checkbox-label">
+              <input type="checkbox" name="customPath" id="custom-path-toggle" />
+              Custom Path
+            </label>
+            <div class="path-options" style="display: none;">
+              <div>
+                <label class="label-path">Path</label>
+                <input name="path" type="text" class="input-path" value="/" placeholder="/" />
+                <div class="path-option-buttons">
+                  <label class="path-option">
+                    <input type="radio" name="pathOption" value="default" class="input-path-default" checked />
+                    Root (/)
+                  </label>
+                  <label class="path-option">
+                    <input type="radio" name="pathOption" value="current" class="input-path-current" />
+                    Current path
+                  </label>
+                  <label class="path-option">
+                    <input type="radio" name="pathOption" value="custom" class="input-path-custom" />
+                    Custom
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </form>
     </template>
 

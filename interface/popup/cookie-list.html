@@ -2,6 +2,7 @@
 
 <html lang="en">
   <head>
+    <script src="../lib/themeLoader.js"></script>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="stylesheet" href="style.css" />
@@ -10,39 +11,57 @@
 
   <body class="notransition">
     <div id="pageTitle">
-      <h1 class="container">
-        Cookie-Editor +
-      </h1>
+      <h1>Cookie-Editor +</h1>
+      <div id="history-controls">
+        <button id="undo-button" disabled title="Undo the last cookie operation">
+          <svg class="icon">
+            <use href="../sprites/solid.svg#undo"></use>
+          </svg>
+        </button>
+        <button id="redo-button" disabled title="Redo the previously undone operation">
+          <svg class="icon">
+            <use href="../sprites/solid.svg#redo"></use>
+          </svg>
+        </button>
+      </div>
       <div id="version"></div>
-      <div id="main-menu">
+      <div class="controls-container">
         <button id="main-menu-button">
           <svg class="icon">
             <use href="../sprites/solid.svg#ellipsis-v"></use>
           </svg>
         </button>
-        <div id="main-menu-content">
-          <label
-            class="menu-item switch"
-            for="advanced-toggle-all"
-            id="advanced-toggle-all-label"
-          >
-            Show Advanced
-            <label class="switch">
-              <input
-                type="checkbox"
-                id="advanced-toggle-all"
-                aria-describedby="advanced-toggle-all-label"
-              />
-              <span class="slider"></span>
-            </label>
+      </div>
+      <div id="main-menu-content">
+        <label
+          class="menu-item"
+          for="advanced-toggle-all"
+          id="advanced-toggle-all-label"
+        >
+          Show Advanced
+          <label class="switch">
+            <input
+              type="checkbox"
+              id="advanced-toggle-all"
+              aria-describedby="advanced-toggle-all-label"
+            />
+            <span class="slider"></span>
           </label>
-          <button class="menu-item" id="menu-all-options">
-            See All Options
-            <svg class="icon">
-              <use href="../sprites/solid.svg#external-link-alt"></use>
-            </svg>
-          </button>
+        </label>
+        <div class="menu-item" id="theme-selector-container">
+          <span>Theme</span>
+          <select id="theme-selector">
+            <option value="auto">System</option>
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+          </select>
         </div>
+        <button class="menu-item" id="menu-all-options">
+          See All Options
+          <svg class="icon">
+            <use href="../sprites/solid.svg#external-link-alt"></use>
+          </svg>
+        </button>
       </div>
     </div>
 
@@ -275,8 +294,9 @@
                 </svg>
               </button>
               <div class="copy-options-menu" style="display: none;">
+                <button class="copy-name" type="button">Copy Name</button>
                 <button class="copy-value" type="button">Copy Value</button>
-                <button class="copy-cookie" type="button">Copy Whole Cookie</button>
+                <button class="copy-cookie" type="button">Copy Entire Cookie</button>
               </div>
             </div>
             <button
@@ -309,7 +329,7 @@
                 class="save"
                 data-tooltip="Save"
                 aria-label="Save"
-                type="submit"
+                type="button"
               >
                 <svg class="icon">
                   <use href="../sprites/solid.svg#save"></use>
@@ -431,6 +451,34 @@
           <label for="value-create">Value</label>
           <textarea name="value" id="value-create"></textarea>
         </div>
+        <div class="advanced-form show">
+          <div>
+            <label class="path-checkbox-label">
+              <input type="checkbox" name="customPath" id="custom-path-toggle" />
+              Custom Path
+            </label>
+            <div class="path-options" style="display: none;">
+              <div>
+                <label class="label-path">Path</label>
+                <input name="path" type="text" class="input-path" value="/" placeholder="/" />
+                <div class="path-option-buttons">
+                  <label class="path-option">
+                    <input type="radio" name="pathOption" value="default" class="input-path-default" checked />
+                    Root (/)
+                  </label>
+                  <label class="path-option">
+                    <input type="radio" name="pathOption" value="current" class="input-path-current" />
+                    Current path
+                  </label>
+                  <label class="path-option">
+                    <input type="radio" name="pathOption" value="custom" class="input-path-custom" />
+                    Custom
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </form>
     </template>
 
@@ -477,6 +525,23 @@
             <use href="../sprites/solid.svg#search"></use>
           </svg>
           <input id="searchField" type="text" placeholder="Search" />
+          <div id="searchOptionsToggle">
+            <svg class="icon filter">
+              <use href="../sprites/solid.svg#filter"></use>
+            </svg>
+          </div>
+          <div id="searchOptionsContainer" class="collapsed">
+            <div class="search-options">
+              <label title="Search in cookie names" class="search-option">
+                <input type="checkbox" id="searchNames" checked />
+                <span>Names</span>
+              </label>
+              <label title="Search in cookie values" class="search-option">
+                <input type="checkbox" id="searchValues" />
+                <span>Values</span>
+              </label>
+            </div>
+          </div>
         </div>
       </li>
     </template>
@@ -537,6 +602,24 @@
 
     <!-- Domain-specific profile actions menu -->
     <div id="domain-profile-menu" class="domain-actions-menu">
+      <button class="domain-action-item submenu-item" id="domain-profiles-submenu">
+        <svg class="icon"><use href="../sprites/solid.svg#folder"></use></svg>
+        Domain Profiles
+        <svg class="icon submenu-arrow"><use href="../sprites/solid.svg#chevron-right"></use></svg>
+      </button>
+      <button class="domain-action-item submenu-item" id="all-profiles-submenu">
+        <svg class="icon"><use href="../sprites/solid.svg#folder-open"></use></svg>
+        All Profiles
+        <svg class="icon submenu-arrow"><use href="../sprites/solid.svg#chevron-right"></use></svg>
+      </button>
+    </div>
+
+    <!-- Domain profiles submenu -->
+    <div id="domain-profiles-submenu-content" class="domain-actions-menu submenu-content">
+      <button class="domain-action-item back-button" id="domain-profiles-back">
+        <svg class="icon"><use href="../sprites/solid.svg#arrow-left"></use></svg>
+        Back
+      </button>
       <button class="domain-action-item" id="import-domain-profiles">
         <svg class="icon"><use href="../sprites/solid.svg#file-import"></use></svg>
         Import Domain Profiles
@@ -544,6 +627,22 @@
       <button class="domain-action-item" id="export-domain-profiles">
         <svg class="icon"><use href="../sprites/solid.svg#file-export"></use></svg>
         Export Domain Profiles
+      </button>
+    </div>
+
+    <!-- All profiles submenu -->
+    <div id="all-profiles-submenu-content" class="domain-actions-menu submenu-content">
+      <button class="domain-action-item back-button" id="all-profiles-back">
+        <svg class="icon"><use href="../sprites/solid.svg#arrow-left"></use></svg>
+        Back
+      </button>
+      <button class="domain-action-item" id="import-all-profiles">
+        <svg class="icon"><use href="../sprites/solid.svg#file-import"></use></svg>
+        Import All Profiles
+      </button>
+      <button class="domain-action-item" id="export-all-profiles">
+        <svg class="icon"><use href="../sprites/solid.svg#file-export"></use></svg>
+        Export All Profiles
       </button>
     </div>
 
@@ -660,8 +759,9 @@
     <!-- Copy options menu template -->
     <template id="tmp-copy-options">
       <div id="copy-options-menu" class="copy-options-menu">
+        <button id="copy-name" type="button">Copy Name</button>
         <button id="copy-value" type="button">Copy Value</button>
-        <button id="copy-cookie" type="button">Copy Whole Cookie</button>
+        <button id="copy-cookie" type="button">Copy Entire Cookie</button>
       </div>
     </template>
     
@@ -706,6 +806,46 @@
           <div class="dialog-actions">
             <button id="cancel-delete-all" class="browser-style cancel-btn">Cancel</button>
             <button id="confirm-delete-all" class="browser-style danger confirm-btn">Delete All</button>
+          </div>
+        </div>
+      </div>
+    </template>
+    
+    <!-- Import domain profiles confirmation dialog template -->
+    <template id="tmp-confirm-import-domain">
+      <div id="confirm-import-dialog" class="confirmation-dialog">
+        <div class="dialog-content-box">
+          <button id="cancel-import-x" class="dialog-close-button" aria-label="Close">
+            <svg class="icon"><use href="../sprites/solid.svg#times"></use></svg>
+          </button>
+          <h3 id="import-dialog-title">Import Confirmation</h3>
+          <p id="import-dialog-message">Confirmation message will appear here</p>
+          <div class="confirm-options">
+            <label>
+              <input type="checkbox" id="dont-show-again-import" />
+              Don't ask again for profile loading
+            </label>
+          </div>
+          <div class="dialog-actions">
+            <button id="cancel-import" class="browser-style cancel-btn">Cancel</button>
+            <button id="confirm-import" class="browser-style primary confirm-btn">OK</button>
+          </div>
+        </div>
+      </div>
+    </template>
+    
+    <!-- Import merge confirmation dialog template -->
+    <template id="tmp-confirm-import-merge">
+      <div id="confirm-import-merge-dialog" class="confirmation-dialog">
+        <div class="dialog-content-box">
+          <button id="cancel-import-merge-x" class="dialog-close-button" aria-label="Close">
+            <svg class="icon"><use href="../sprites/solid.svg#times"></use></svg>
+          </button>
+          <h3>Import Options</h3>
+          <p>Existing profiles found. How would you like to proceed?</p>
+          <div class="dialog-actions">
+            <button id="cancel-import-merge" class="browser-style cancel-btn">Cancel</button>
+            <button id="confirm-import-merge" class="browser-style primary confirm-btn">Merge</button>
           </div>
         </div>
       </div>

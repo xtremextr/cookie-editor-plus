@@ -2,6 +2,7 @@
 
 <html lang="en">
   <head>
+    <script src="../lib/themeLoader.js"></script>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="stylesheet" href="../popup/style.css" />
@@ -35,6 +36,14 @@
               <span class="slider"></span>
             </label>
           </label>
+          <div class="menu-item" id="theme-selector-container">
+            <span>Theme</span>
+            <select id="theme-selector">
+              <option value="auto">System</option>
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
+            </select>
+          </div>
           <button class="menu-item" id="menu-all-options">
             See All Options
             <svg class="icon">
@@ -218,6 +227,7 @@
                 </svg>
               </button>
               <div class="copy-options-menu" style="display: none;">
+                <button class="copy-name" type="button">Copy Name</button>
                 <button class="copy-value" type="button">Copy Value</button>
                 <button class="copy-cookie" type="button">Copy Whole Cookie</button>
               </div>
@@ -359,6 +369,34 @@
           <label for="value-create">Value</label>
           <textarea name="value" id="value-create"></textarea>
         </div>
+        <div class="advanced-form show">
+          <div>
+            <label class="path-checkbox-label">
+              <input type="checkbox" name="customPath" id="custom-path-toggle" />
+              Custom Path
+            </label>
+            <div class="path-options" style="display: none;">
+              <div>
+                <label class="label-path">Path</label>
+                <input name="path" type="text" class="input-path" value="/" placeholder="/" />
+                <div class="path-option-buttons">
+                  <label class="path-option">
+                    <input type="radio" name="pathOption" value="default" class="input-path-default" checked />
+                    Root (/)
+                  </label>
+                  <label class="path-option">
+                    <input type="radio" name="pathOption" value="current" class="input-path-current" />
+                    Current path
+                  </label>
+                  <label class="path-option">
+                    <input type="radio" name="pathOption" value="custom" class="input-path-custom" />
+                    Custom
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </form>
     </template>
 
@@ -405,6 +443,23 @@
             <use href="../sprites/solid.svg#search"></use>
           </svg>
           <input id="searchField" type="text" placeholder="Search" />
+          <div id="searchOptionsToggle">
+            <svg class="icon filter">
+              <use href="../sprites/solid.svg#filter"></use>
+            </svg>
+          </div>
+          <div id="searchOptionsContainer" class="collapsed">
+            <div class="search-options">
+              <label title="Search in cookie names" class="search-option">
+                <input type="checkbox" id="searchNames" checked />
+                <span>Names</span>
+              </label>
+              <label title="Search in cookie values" class="search-option">
+                <input type="checkbox" id="searchValues" />
+                <span>Values</span>
+              </label>
+            </div>
+          </div>
         </div>
       </li>
     </template>
