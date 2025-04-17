@@ -8,4 +8,4 @@ Chrome Only.
 
 https://chromewebstore.google.com/detail/cookie-editor-plus/pdagnlldejbkhigeaihceggenlnfgdob
 
-Last Updated: June 13, 2023
+Last Updated: April 17, 2025
