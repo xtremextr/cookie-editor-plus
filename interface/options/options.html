@@ -109,14 +109,25 @@
         </div>
 
         <div class="input-container">
-          <label for="button-bar-top">Place Button Bar on Top</label>
-          <label class="switch">
-            <input type="checkbox" id="button-bar-top" aria-describedby="button-bar-top-hint" />
-            <span class="slider"></span>
-          </label>
-          <div class="hint" id="button-bar-top-hint">
-            When enabled, the main button bar will be placed at the top of the
-            interface instead of the bottom.
+          <label for="action-button-position">Cookie action buttons</label>
+          <select id="action-button-position" aria-describedby="action-button-position-hint">
+            <option value="left">Left of form</option>
+            <option value="below">Below form</option>
+          </select>
+          <div class="hint" id="action-button-position-hint">
+            Choose where to place the delete/save buttons in the expanded cookie view.
+          </div>
+        </div>
+
+        <div class="input-container">
+          <label for="button-bar-position">Place Button Bar</label>
+          <select id="button-bar-position" aria-describedby="button-bar-position-hint">
+            <option value="bottom">Bottom</option>
+            <option value="top">Top</option>
+          </select>
+          <div class="hint" id="button-bar-position-hint">
+            Choose whether to place the main button bar at the top or bottom of the
+            interface.
           </div>
         </div>
         

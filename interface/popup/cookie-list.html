@@ -300,6 +300,17 @@
               </div>
             </div>
             <button
+              class="save"
+              data-tooltip-left="Save"
+              aria-label="Save"
+              tabindex="-1"
+              type="button"
+            >
+              <svg class="icon">
+                <use href="../sprites/solid.svg#save"></use>
+              </svg>
+            </button>
+            <button
               class="delete"
               data-tooltip-left="Delete"
               aria-label="Delete"
@@ -846,6 +857,28 @@
           <div class="dialog-actions">
             <button id="cancel-import-merge" class="browser-style cancel-btn">Cancel</button>
             <button id="confirm-import-merge" class="browser-style primary confirm-btn">Merge</button>
+          </div>
+        </div>
+      </div>
+    </template>
+    <!-- Delete profile confirmation dialog template -->
+    <template id="tmp-confirm-delete-profile">
+      <div id="confirm-delete-profile-dialog" class="confirmation-dialog">
+        <div class="dialog-content-box">
+          <button id="cancel-delete-profile-x" class="dialog-close-button" aria-label="Close">
+            <svg class="icon"><use href="../sprites/solid.svg#times"></use></svg>
+          </button>
+          <h3 id="delete-profile-dialog-title">Delete Profile Confirmation</h3>
+          <p id="delete-profile-dialog-message">Confirmation message will appear here</p>
+          <div class="confirm-options">
+            <label>
+              <input type="checkbox" id="dont-show-again-delete-profile" />
+              Don't ask again for profile deletion
+            </label>
+          </div>
+          <div class="dialog-actions">
+            <button id="cancel-delete-profile" class="browser-style cancel-btn">Cancel</button>
+            <button id="confirm-delete-profile" class="browser-style danger confirm-btn">Delete</button>
           </div>
         </div>
       </div>

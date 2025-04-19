@@ -21,7 +21,7 @@ document.addEventListener('DOMContentLoaded', async (event) => {
   const exportFormatInput = document.getElementById('export-format');
   const extraInfoInput = document.getElementById('extra-info');
   const themeInput = document.getElementById('theme');
-  const buttonBarTopInput = document.getElementById('button-bar-top');
+  const buttonBarPositionInput = document.getElementById('button-bar-position');
   const adsEnabledInput = document.getElementById('ads-enabled');
   const notificationElement = document.getElementById('notification');
 
@@ -55,8 +55,13 @@ document.addEventListener('DOMContentLoaded', async (event) => {
     exportFormatInput.value = optionHandler.getExportFormat();
     extraInfoInput.value = optionHandler.getExtraInfo();
     themeInput.value = optionHandler.getTheme();
-    buttonBarTopInput.checked = optionHandler.getButtonBarTop();
+    buttonBarPositionInput.value = optionHandler.getButtonBarTop() ? 'top' : 'bottom';
     adsEnabledInput.checked = optionHandler.getAdsEnabled();
+    // Set action button position select
+    const actionPositionSelect = document.getElementById('action-button-position');
+    if (actionPositionSelect) {
+      actionPositionSelect.value = optionHandler.getActionButtonPosition();
+    }
 
     if (!browserDetector.isSafari()) {
       document
@@ -107,11 +112,11 @@ document.addEventListener('DOMContentLoaded', async (event) => {
       optionHandler.setTheme(themeInput.value);
       themeHandler.updateTheme();
     });
-    buttonBarTopInput.addEventListener('change', (event) => {
+    buttonBarPositionInput.addEventListener('change', (event) => {
       if (!event.isTrusted) {
         return;
       }
-      optionHandler.setButtonBarTop(buttonBarTopInput.checked);
+      optionHandler.setButtonBarTop(buttonBarPositionInput.value === 'top');
     });
     adsEnabledInput.addEventListener('change', (event) => {
       if (!event.isTrusted) {
@@ -119,6 +124,14 @@ document.addEventListener('DOMContentLoaded', async (event) => {
       }
       optionHandler.setAdsEnabled(adsEnabledInput.checked);
     });
+    // Listen for change in action button position
+    const actionPositionInput = document.getElementById('action-button-position');
+    if (actionPositionInput) {
+      actionPositionInput.addEventListener('change', (event) => {
+        if (!event.isTrusted) return;
+        optionHandler.setActionButtonPosition(event.target.value);
+      });
+    }
 
     document
       .getElementById('delete-all')
@@ -290,6 +303,7 @@ document.addEventListener('DOMContentLoaded', async (event) => {
     await storageHandler.removeLocal('showDeleteConfirmation');
     await storageHandler.removeLocal('showDeleteAllConfirmation');
     await storageHandler.removeLocal('showProfileLoadConfirmation');
+    await storageHandler.removeLocal('showDeleteProfileConfirmation');
     showNotification('✓ All confirmation dialogs have been reset successfully!', false, 4000);
   }
 });

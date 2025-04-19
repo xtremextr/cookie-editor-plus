@@ -39,6 +39,7 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
   let showDeleteConfirmation = true; // Flag to control delete confirmation display
   let showDeleteAllConfirmation = true; // Flag to control delete all confirmation display
   let showProfileLoadConfirmation = true; // Flag to control profile load confirmation display
+  let showDeleteProfileConfirmation = true; // Flag to control delete profile confirmation display
   let activeDeleteCookieName = null; // Store the name of cookie being deleted
   let activeCopyMenu = null; // Store the active copy menu element
   
@@ -150,6 +151,13 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     
     // Load options before proceeding
     await optionHandler.loadOptions();
+    // Apply user preference for action button layout: left or below
+    const actionLayout = optionHandler.getActionButtonPosition();
+    if (actionLayout === 'below') {
+      document.body.classList.add('action-buttons-below');
+    } else {
+      document.body.classList.remove('action-buttons-below');
+    }
 
     // Initialize animations right after options are loaded
     handleAnimationsEnabled();
@@ -158,6 +166,7 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     showDeleteConfirmation = await storageHandler.getLocal('showDeleteConfirmation', true); // Default to true if not set
     showDeleteAllConfirmation = await storageHandler.getLocal('showDeleteAllConfirmation', true); // Default to true if not set
     showProfileLoadConfirmation = await storageHandler.getLocal('showProfileLoadConfirmation', true); // Default to true if not set
+    showDeleteProfileConfirmation = await storageHandler.getLocal('showDeleteProfileConfirmation', true); // Default to true if not set
     // --- END ADDITION ---
 
     await themeHandler.updateTheme();
@@ -273,6 +282,31 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
         const deleteBtn = e.target.closest('button.delete');
         if (deleteBtn) {
           deleteButton(e); // deleteButton handles finding the cookie
+          return;
+        }
+        
+        // Handle click on save button in header
+        const headerSaveBtn = e.target.closest('.header .btns button.save');
+        if (headerSaveBtn) {
+          e.stopPropagation(); // Stop event bubbling
+          
+          const cookieElement = headerSaveBtn.closest('li.cookie');
+          if (cookieElement) {
+            const header = cookieElement.querySelector('.header');
+            
+            // Only process the save if the cookie is already expanded
+            if (!header.classList.contains('active')) {
+              // Do nothing if cookie is collapsed
+              return;
+            }
+            
+            e.preventDefault(); // Prevent default action
+            // Find and process the form
+            const form = cookieElement.querySelector('form');
+            if (form) {
+              saveCookieForm(form);
+            }
+          }
           return;
         }
 
@@ -1956,11 +1990,11 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       }
     });
     // On popup open, apply the persisted parent-cookie setting by refreshing the list
-    if (selectedDomain) {
-      showCookiesForSelectedDomain(true);
-    } else {
-      showCookiesForTab(true);
-    }
+    //if (selectedDomain) {
+      //showCookiesForSelectedDomain(true);
+    //} else {
+      //showCookiesForTab(true);
+    //}
   });
 
   // == End document ready == //
@@ -4082,7 +4116,7 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
       formContainer.style.zIndex = '1000';
       
       const formElement = formContainer.querySelector('form');
-      formElement.style.backgroundColor = 'var(--background-color)';
+      formElement.style.backgroundColor = 'var(--primary-surface-color)';
       formElement.style.padding = '20px';
       formElement.style.borderRadius = '8px';
       formElement.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.2)';
@@ -4643,14 +4677,25 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     
     const profileName = profileSelector.value;
     
-    // Confirm before deleting
-    if (!await confirmAction(`Are you sure you want to delete the profile "${profileName}"?`)) {
+    // Confirm before deleting with dedicated dialog
+    let shouldDelete = true;
+    if (showDeleteProfileConfirmation) {
+      const result = await showDeleteProfileConfirmationDialog(
+        `Are you sure you want to delete the profile "${profileName}"?`
+      );
+      shouldDelete = result.confirmed;
+      if (result.confirmed && result.dontAskAgain) {
+        showDeleteProfileConfirmation = false;
+        await storageHandler.setLocal('showDeleteProfileConfirmation', false);
+      }
+    }
+    if (!shouldDelete) {
       return;
     }
-    
+
     // Delete the profile
     const success = await profileManager.deleteProfile(currentDomain, profileName);
-    
+
     if (success) {
       sendNotification(`Profile "${profileName}" deleted.`, false);
       await updateProfileSelector(currentDomain);
@@ -7407,5 +7452,75 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
         }
       }
     }
+  }
+
+  /**
+   * Shows the delete profile confirmation dialog
+   * @param {string} message Message to display
+   * @param {string} title Title of the dialog
+   * @return {Promise<{confirmed: boolean, dontAskAgain: boolean}>} User confirmation result
+   */
+  function showDeleteProfileConfirmationDialog(message, title = 'Delete Profile Confirmation') {
+    return new Promise((resolve) => {
+      const template = document.importNode(
+        document.getElementById('tmp-confirm-delete-profile').content,
+        true
+      );
+      const dialog = template.querySelector('#confirm-delete-profile-dialog');
+      const titleElement = dialog.querySelector('#delete-profile-dialog-title');
+      const messageElement = dialog.querySelector('#delete-profile-dialog-message');
+      const dontShowAgainCheckbox = dialog.querySelector('#dont-show-again-delete-profile');
+
+      titleElement.textContent = title;
+      messageElement.textContent = message;
+
+      document.body.appendChild(dialog);
+
+      const cancelButton = dialog.querySelector('#cancel-delete-profile');
+      const confirmButton = dialog.querySelector('#confirm-delete-profile');
+      const closeXButton = dialog.querySelector('#cancel-delete-profile-x');
+
+      const escapeKeyHandler = function(e) {
+        if (e.key === 'Escape') {
+          closeDialog();
+          resolve({ confirmed: false, dontAskAgain: false });
+        }
+      };
+
+      cancelButton.addEventListener('click', () => {
+        closeDialog();
+        resolve({ confirmed: false, dontAskAgain: false });
+      });
+
+      closeXButton.addEventListener('click', () => {
+        closeDialog();
+        resolve({ confirmed: false, dontAskAgain: false });
+      });
+
+      confirmButton.addEventListener('click', () => {
+        const dontAskAgain = dontShowAgainCheckbox.checked;
+        closeDialog();
+        resolve({ confirmed: true, dontAskAgain });
+      });
+
+      document.addEventListener('keydown', escapeKeyHandler);
+
+      function closeDialog() {
+        const dialogElement = document.getElementById('confirm-delete-profile-dialog');
+        if (dialogElement) {
+          document.removeEventListener('keydown', escapeKeyHandler);
+          dialogElement.classList.remove('visible');
+          setTimeout(() => {
+            if (dialogElement.parentNode) {
+              dialogElement.parentNode.removeChild(dialogElement);
+            }
+          }, 300);
+        }
+      }
+
+      setTimeout(() => {
+        dialog.classList.add('visible');
+      }, 10);
+    });
   }
 })();

@@ -256,6 +256,24 @@ export class OptionsHandler extends EventEmitter {
   }
 
   /**
+   * Gets the position of cookie action buttons.
+   * @return {string} 'left' or 'below'.
+   */
+  getActionButtonPosition() {
+    return this.options.actionButtonPosition || 'left';
+  }
+  /**
+   * Sets the position of cookie action buttons.
+   * @param {string} position 'left' or 'below'.
+   */
+  setActionButtonPosition(position) {
+    if (position === 'left' || position === 'below') {
+      this.options.actionButtonPosition = position;
+      this.saveOptions();
+    }
+  }
+
+  /**
    * Gets the search options configuration.
    * @return {object} Object containing searchNames and searchValues booleans.
    */

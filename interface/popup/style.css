@@ -665,6 +665,16 @@ button:focus {
   opacity: 1;
 }
 
+/* Save button in header should appear disabled when cookie is not expanded */
+#cookie-container li .header .btns button.save {
+  opacity: 0.5;
+}
+
+#cookie-container li .header.active .btns button.save {
+  opacity: 1;
+  cursor: pointer;
+}
+
 #cookie-container li .header .icon.arrow {
   -moz-transition: transform 150ms ease-in 0s;
   transition: transform 150ms ease-in 0s;
@@ -713,6 +723,7 @@ button:focus {
   flex: 1;
   display: flex;
   padding: 1px 0;
+  align-items: center;
 }
 
 #cookie-container textarea,
@@ -789,7 +800,8 @@ label {
 
 .expando .container.form {
   flex: 1;
-  padding-left: 4px;
+  padding-left: 12px;
+  padding-right: 12px;
 }
 .container.form label {
   font-weight: 500;
@@ -822,6 +834,21 @@ label {
   outline: 0;
 }
 
+.btns button.save {
+  background-color: var(--primary-surface-color);
+  border: 1px solid var(--secondary-border-color);
+  height: 24px;
+  outline: 0 !important;
+  padding: 0 8px 0;
+  transition-duration: 250ms;
+  transition-property: box-shadow, border;
+}
+
+.btns button.save::-moz-focus-inner {
+  border: 0;
+  outline: 0;
+}
+
 .action-btns button {
   flex: 1 1;
   border: none;
@@ -847,6 +874,12 @@ button.delete:hover svg,
 button.delete:focus svg {
   fill: var(--primary-danger-color);
 }
+
+button.save:hover svg,
+button.save:focus svg {
+  fill: var(--primary-safe-color);
+}
+
 .action-btns button.save:hover svg,
 .action-btns button.save:focus svg {
   fill: var(--primary-safe-color);
@@ -1153,6 +1186,7 @@ body,
   }
 }
 
+/* Fix positioning for action buttons when advanced options are toggled */
 .advanced-form {
   display: none;
   overflow: hidden;
@@ -1162,7 +1196,9 @@ body,
   margin-top: 0;
   position: relative;
   will-change: opacity, height;
+  z-index: 1; /* Always set z-index to ensure proper stacking */
 }
+
 .advanced-form.show {
   display: block;
   opacity: 1;
@@ -1170,6 +1206,8 @@ body,
   margin-top: 5px;
   margin-bottom: 5px;
 }
+
+/* Advanced toggle button styles */
 .advanced-toggle {
   display: block;
   width: 100%;
@@ -1182,13 +1220,137 @@ body,
   cursor: pointer;
   user-select: none;
 }
+
 .advanced-toggle:hover,
 .advanced-toggle:focus {
   color: var(--primary-text-color);
 }
+
 .advanced-toggle:focus-visible {
   outline: 2px solid var(--primary-outline-color);
   border-radius: 4px;
+}
+
+/* Layout option: place action buttons below form - override default alignment */
+.action-buttons-below .expando .wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  position: relative; /* Ensure proper positioning context */
+  padding-bottom: 60px; /* Add padding at bottom to ensure space for buttons */
+}
+
+.action-buttons-below .expando .wrapper .form {
+  width: 100%;
+  order: 1;
+  margin-bottom: 8px; /* Keep margin for below form view */
+}
+
+.action-buttons-below .expando .wrapper .action-btns {
+  width: 100%;
+  order: 2;
+  margin-top: 8px; /* Keep margin for below form view */
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  padding: 4px 12px 12px;
+  position: relative;
+  z-index: 5;
+}
+
+/* Create an overlay layer for buttons when advanced is shown */
+.action-buttons-below .expando .advanced-form.show ~ .action-btns {
+  position: relative;
+  z-index: 5;
+  margin-top: 8px !important;
+  background-color: var(--secondary-surface-color); /* Use lighter gray background consistently */
+  padding-top: 8px;
+  padding-bottom: 12px;
+  display: flex !important;
+  border-radius: 4px; /* Add rounded corners */
+}
+
+/* Fix specific issue with animation causing buttons to temporarily disappear */
+.action-buttons-below .expando.animating .wrapper .action-btns {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  margin-top: 8px !important;
+  background-color: var(--secondary-surface-color); /* Use lighter gray background consistently */
+  border-radius: 4px; /* Add rounded corners */
+}
+
+/* Create cleaner structure for buttons below advanced form */
+.action-buttons-below .expando .advanced-form.show {
+  margin-bottom: 0; /* Remove default margin to connect with buttons */
+  border-bottom: 1px solid transparent; /* Add invisible border to maintain spacing */
+  padding-bottom: 4px; /* Add padding instead of margin */
+}
+
+/* Absolute positioning fallback to guarantee button visibility */
+.action-buttons-below .expando:has(.advanced-form.show) .action-btns {
+  bottom: 8px;
+  position: sticky !important; /* Sticky positioning to keep buttons visible */
+  background-color: var(--secondary-surface-color) !important; /* Force lighter gray background */
+  border-top: 1px solid var(--primary-border-color);
+  padding-top: 8px;
+  margin-top: 16px !important;
+  box-shadow: 0 -2px 5px rgba(0,0,0,0.1);
+  border-radius: 4px; /* Add rounded corners */
+}
+
+/* Standard button row background for below form layout */
+.action-buttons-below .expando .wrapper .action-btns {
+  background-color: var(--secondary-surface-color); /* Ensure consistent background color */
+  border-radius: 4px; /* Add rounded corners */
+  padding: 8px; /* Consistent padding */
+}
+
+/* Actions for expanded cookie buttons - ensure equal sizes */
+.action-btns button {
+  min-width: 32px;
+  width: 32px;
+  min-height: 32px; 
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+  margin: 4px;
+  flex: 0 0 32px; /* Prevent flex stretching */
+}
+
+.action-btns button.delete {
+  background-color: var(--button-danger-surface-color);
+}
+
+.action-btns button.save {
+  background-color: var(--primary-safe-color);
+}
+
+.action-btns button.delete svg.icon,
+.action-btns button.save svg.icon {
+  fill: white;
+}
+
+.action-btns button.delete:hover {
+  background-color: var(--primary-danger-color);
+}
+
+.action-btns button.save:hover {
+  background-color: var(--primary-safe-color);
+}
+
+/* Disable focus outline and tooltip on cookie action buttons */
+.expando .action-btns button:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+.expando .action-btns button[data-tooltip]::after,
+.expando .action-btns button[data-tooltip-left]::after {
+  display: none !important;
 }
 
 #export-menu {
@@ -2001,7 +2163,8 @@ body,
 
 /* Confirmation Dialog Overlays */
 #confirm-delete-dialog,
-#confirm-delete-all-dialog {
+#confirm-delete-all-dialog,
+#confirm-delete-profile-dialog {
   position: fixed;
   top: 0;
   left: 0;
@@ -2020,7 +2183,8 @@ body,
 #confirm-delete-dialog.visible,
 #confirm-delete-all-dialog.visible,
 #confirm-import-dialog.visible,
-#confirm-import-merge-dialog.visible {
+#confirm-import-merge-dialog.visible,
+#confirm-delete-profile-dialog.visible {
   opacity: 1;
   pointer-events: auto;
 }

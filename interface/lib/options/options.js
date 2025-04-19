@@ -22,5 +22,6 @@ export class Options {
       searchNames: true,
       searchValues: false
     };
+    this.actionButtonPosition = 'left';
   }
 }
