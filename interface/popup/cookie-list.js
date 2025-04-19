@@ -1426,26 +1426,35 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     document.getElementById('return-list-add').addEventListener('click', () => {
       if (disableButtons) return;
       disableButtons = true;
-      
       // Pause CSS transitions for the animation
       document.body.classList.add('notransition'); void document.body.offsetHeight;
-      setTimeout(() => {
+      setTimeout(async () => {
         document.body.classList.remove('notransition');
-        
+        // Check permissions for current tab URL
+        const currentUrl = cookieHandler.currentTab?.url;
+        try {
+          const hasPerm = await permissionHandler.checkPermissions(currentUrl);
+          if (!hasPerm) {
+            await showNoPermission();
+            disableButtons = false;
+            return;
+          }
+        } catch (error) {
+          await showNoPermission();
+          disableButtons = false;
+          return;
+        }
         // Use stored form domain if available
         const form = containerCookie.querySelector('form');
         const formStoredDomain = form?.dataset?.domain;
         if (formStoredDomain) {
-          // Sync domain selector and state
           if (domainSelector && formStoredDomain !== domainSelector.value) {
             domainSelector.value = formStoredDomain;
             selectedDomain = formStoredDomain;
           }
-          // Show cookies for selected domain
           showCookiesForSelectedDomain(true)
             .finally(() => { disableButtons = false; });
         } else {
-          // Show cookies for current tab domain
           showCookiesForTab(true)
             .finally(() => { disableButtons = false; });
         }
@@ -2381,9 +2390,10 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
    * @return {Promise} Promise that resolves when the operation completes
    */
   function showNoPermission() {
-    if (disableButtons) {
-      return Promise.resolve();
-    }
+    // ignore disableButtons to always show the permission prompt
+    // if (disableButtons) {
+    //   return Promise.resolve();
+    // }
     
     // Reset tracking variable
     cookiesListHtml = null;
@@ -2397,7 +2407,7 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     document.getElementById('button-bar-add').classList.remove('active');
     document.getElementById('button-bar-import').classList.remove('active');
     // KEEP THE DEFAULT BUTTON BAR ACTIVE
-    // document.getElementById('button-bar-default').classList.remove('active');
+    document.getElementById('button-bar-default').classList.add('active');
     
     // Special handling for Firefox
     if (
@@ -2501,9 +2511,10 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
    * @return {Promise} Promise that resolves when the operation completes
    */
   function showPermissionImpossible() {
-    if (disableButtons) {
-      return Promise.resolve();
-    }
+    // ignore disableButtons to always show the permission-impossible prompt
+    // if (disableButtons) {
+    //   return Promise.resolve();
+    // }
     
     // Reset tracking variable
     cookiesListHtml = null;
@@ -2520,7 +2531,7 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
     document.getElementById('button-bar-add').classList.remove('active');
     document.getElementById('button-bar-import').classList.remove('active');
     // KEEP THE DEFAULT BUTTON BAR ACTIVE
-    // document.getElementById('button-bar-default').classList.remove('active');
+    document.getElementById('button-bar-default').classList.add('active');
     
     // If we already have the permission-impossible message, do nothing
     if (containerCookie.firstChild && containerCookie.firstChild.id === 'permission-impossible') {
