@@ -801,4 +801,71 @@ export class Cookie {
       }
     }
   }
+
+  /**
+   * Changes the save button tooltip to 'Saved' temporarily and then reverts back
+   * This also ensures the button style/state is reset properly
+   * @param {object} event The click event (optional)
+   */
+  showSaveConfirmation(event) {
+    if (this.baseHtml) {
+      // Find all save buttons in this cookie element (header and expanded view)
+      const saveButtons = this.baseHtml.querySelectorAll('button.save');
+      
+      saveButtons.forEach(button => {
+        // Store original tooltip text
+        const originalTooltip = button.hasAttribute('data-tooltip-left') 
+          ? button.getAttribute('data-tooltip-left')
+          : button.hasAttribute('data-tooltip')
+            ? button.getAttribute('data-tooltip')
+            : 'Save';
+        
+        // Change tooltip text
+        if (button.hasAttribute('data-tooltip-left')) {
+          button.setAttribute('data-tooltip-left', 'Saved');
+        } else if (button.hasAttribute('data-tooltip')) {
+          button.setAttribute('data-tooltip', 'Saved');
+        }
+        
+        // Add the saved class for animation
+        button.classList.add('saved');
+        
+        // Show success icon
+        const icon = button.querySelector('svg use');
+        const originalHref = icon ? icon.getAttribute('href') : null;
+        if (icon) {
+          icon.setAttribute('href', '../sprites/solid.svg#check');
+        }
+        
+        // Reset after delay
+        setTimeout(() => {
+          // Reset tooltip text
+          if (button.hasAttribute('data-tooltip-left')) {
+            button.setAttribute('data-tooltip-left', originalTooltip);
+          } else if (button.hasAttribute('data-tooltip')) {
+            button.setAttribute('data-tooltip', originalTooltip);
+          }
+          
+          // Remove the saved class
+          button.classList.remove('saved');
+          
+          // Reset icon
+          if (icon && originalHref) {
+            icon.setAttribute('href', originalHref);
+          }
+          
+          // Force reset button states by creating and dispatching a mouseout event
+          const mouseOutEvent = new MouseEvent('mouseout', {
+            bubbles: true,
+            cancelable: true,
+            view: window
+          });
+          button.dispatchEvent(mouseOutEvent);
+          
+          // If the button has :hover or :focus states applied, we need to remove those too
+          button.blur(); // Remove focus if present
+        }, 1500);
+      });
+    }
+  }
 }

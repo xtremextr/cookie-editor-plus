@@ -668,11 +668,19 @@ button:focus {
 /* Save button in header should appear disabled when cookie is not expanded */
 #cookie-container li .header .btns button.save {
   opacity: 0.5;
+  cursor: default;
+  pointer-events: auto;
+}
+
+#cookie-container li .header:not(.active) .btns button.save {
+  opacity: 0.5;
+  cursor: default;
 }
 
 #cookie-container li .header.active .btns button.save {
   opacity: 1;
   cursor: pointer;
+  pointer-events: auto;
 }
 
 #cookie-container li .header .icon.arrow {
@@ -2630,4 +2638,47 @@ html[data-theme="dark"] {
 html[data-theme="light"] {
   background-color: var(--primary-surface-color);
   color: var(--primary-text-color);
+}
+
+/* Specific rules to ensure tooltips only show on hover/focus and reset properly */
+button.save:not(:hover):not(:focus)::after,
+button.delete:not(:hover):not(:focus)::after {
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
+
+/* Reset green button color when not in hover or focus state */
+.expando .action-btns button.save:not(:hover):not(:focus) {
+  background-color: var(--primary-safe-color);
+}
+
+/* Animation for save button success state */
+@keyframes save-button-success {
+  0% {
+    background-color: var(--primary-safe-color);
+  }
+  50% {
+    background-color: var(--success-surface-color);
+  }
+  100% {
+    background-color: var(--primary-safe-color);
+  }
+}
+
+/* Apply animation when save is clicked */
+.expando .action-btns button.save.saved {
+  animation: save-button-success 1.5s;
+}
+
+/* Prevent hover effects on header save button when not active (collapsed) */
+#cookie-container li .header:not(.active) .btns button.save:hover::after,
+#cookie-container li .header:not(.active) .btns button.save:focus::after {
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
+
+/* Prevent color change on hover for inactive save buttons */
+#cookie-container li .header:not(.active) .btns button.save:hover svg,
+#cookie-container li .header:not(.active) .btns button.save:focus svg {
+  fill: var(--primary-text-color) !important;
 }

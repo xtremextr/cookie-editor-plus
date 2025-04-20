@@ -289,6 +289,7 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
         const headerSaveBtn = e.target.closest('.header .btns button.save');
         if (headerSaveBtn) {
           e.stopPropagation(); // Stop event bubbling
+          e.preventDefault(); // Prevent default action
           
           const cookieElement = headerSaveBtn.closest('li.cookie');
           if (cookieElement) {
@@ -296,33 +297,34 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
             
             // Only process the save if the cookie is already expanded
             if (!header.classList.contains('active')) {
-              // Do nothing if cookie is collapsed
-              return;
+              // Prevent any action when cookie is collapsed
+              return false; // Return false to ensure no further propagation
             }
             
-            e.preventDefault(); // Prevent default action
             // Find and process the form
             const form = cookieElement.querySelector('form');
             if (form) {
               saveCookieForm(form);
             }
           }
-          return;
+          return false; // Return false to ensure no further propagation
         }
 
         // --- BEGIN ADDITION: Listener for SAVE button in expando ---
         const saveBtn = e.target.closest('.expando .action-btns button.save');
         if (saveBtn) {
           // Find the form associated with this save button
+          e.stopPropagation(); // Stop event bubbling
+          e.preventDefault(); // Prevent default action
+          
           const expando = saveBtn.closest('.expando');
           if (expando) {
             const form = expando.querySelector('form');
             if (form) {
-              e.preventDefault(); // Prevent any default button action
               saveCookieForm(form);
             }
           }
-          return;
+          return false; // Return false to ensure no further propagation
         }
         // --- END ADDITION ---
 
@@ -353,6 +355,11 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
      * @param {element} e Element to expand.
      */
     function expandCookie(e) {
+      // Extra safety check - don't expand if target is or is inside a button
+      if (e.target.closest('button')) {
+        return;
+      }
+      
       const parent = e.target.closest('li');
       const header = parent.querySelector('.header');
       const expando = parent.querySelector('.expando');
@@ -1016,12 +1023,16 @@ import { createShareableUrl, extractSharedCookiesFromUrl, formatExpiration, crea
             if (liElement) {
               cookieContainer.updateHtml(savedCookie, liElement);
               cookieContainer.showSuccessAnimation(liElement);
-                } else {
+              // Add call to showSaveConfirmation
+              cookieContainer.showSaveConfirmation();
+            } else {
               // Otherwise find the element by ID
               const element = document.getElementById(id);
               if (element) {
                 cookieContainer.updateHtml(savedCookie, element);
                 cookieContainer.showSuccessAnimation(element);
+                // Add call to showSaveConfirmation
+                cookieContainer.showSaveConfirmation();
               }
             }
             
