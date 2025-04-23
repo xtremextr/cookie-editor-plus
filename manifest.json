@@ -2,7 +2,7 @@
 	"manifest_version": 3,
 	"name": "Cookie Editor Plus",
 	"short_name": "Cookie Editor",
-	"version": "2.9.2",
+	"version": "2.9.5",
 	"author": "X",
 	"description": "A powerful cookie editor that lets you create, edit, and delete cookies.",
 	"offline_enabled": true,
@@ -34,8 +34,20 @@
 		"storage",
 		"sidePanel"
 	],
+	"host_permissions": [],
 	"optional_host_permissions": [
 		"<all_urls>"
+	],
+	"web_accessible_resources": [
+		{
+			"resources": [
+				"interface/theme/*.css",
+				"interface/popup/*.css",
+				"interface/lib/*.js",
+				"interface/sprites/*.svg"
+			],
+			"matches": ["<all_urls>"]
+		}
 	],
 	"icons": {
 		"16": "icons/cookie-16-filled.png",

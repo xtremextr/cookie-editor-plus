@@ -32,7 +32,7 @@ export class HistoryHandler {
    * @param {string} url - URL associated with the cookie
    */
   recordOperation(type, cookieData, newCookieData, url) {
-    console.log(`Recording history operation: ${type}`, 
+                console.log(`Recording undo/redo operation: ${type}`, 
                 { cookieData: cookieData ? 'present' : 'null', 
                   newCookieData: newCookieData ? 'present' : 'null' });
     this.historyManager.recordEdit(type, cookieData, newCookieData, url);
@@ -286,3 +286,4 @@ export class HistoryHandler {
     this.historyManager.clear();
   }
 } 
+

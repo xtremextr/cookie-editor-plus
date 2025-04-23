@@ -190,7 +190,7 @@ export class ProfileManager extends EventEmitter {
       const profile = domainProfiles[profileName];
       
       // Log key profile data for debugging without exposing sensitive values
-      console.log(`Retrieved profile ${profileName} for ${this._getCanonicalDomain(domain)}:`, 
+                  console.log(`Retrieved profile ${profileName} for ${this._getCanonicalDomain(domain)}:`, 
                   Array.isArray(profile) ? 
                   `Array with ${profile.length} cookies` : 
                   (profile && typeof profile === 'object' ? 
@@ -285,7 +285,7 @@ export class ProfileManager extends EventEmitter {
       // Emit event for listeners
       this.emit('profileLoaded', { domain: canonicalDomain, profileName }); // Emit canonical domain
 
-      console.log(`Profile ${profileName} marked as loaded for domain ${canonicalDomain}.`);
+//      console.log(`Profile ${profileName} marked as loaded for domain ${canonicalDomain}.`);
       return true;
     } catch (error) {
       console.error(`Error marking profile ${profileName} as loaded for ${canonicalDomain}:`, error);
@@ -333,7 +333,7 @@ export class ProfileManager extends EventEmitter {
             // Emit event
             this.emit('profileModified', { domain: canonicalDomain, profileName: metadata[canonicalDomain].lastLoaded });
             
-            console.log(`Cookies for domain ${canonicalDomain} marked as modified.`);
+//            console.log(`Cookies for domain ${canonicalDomain} marked as modified.`);
             return true;
         } else {
             // console.log(`No loaded profile found for ${canonicalDomain}, cannot mark as modified.`);
@@ -364,7 +364,7 @@ export class ProfileManager extends EventEmitter {
         
         // If no profile is loaded, they can't be modified relative to a profile
         if (!metadata.lastLoaded) {
-            console.log(`[checkIfCookiesModified] No profile loaded for ${canonicalDomain}.`);
+//            console.log(`[checkIfCookiesModified] No profile loaded for ${canonicalDomain}.`);
             // Ensure 'modified' is false if no profile is loaded
             if (metadata.modified) {
                 await this.resetModifiedStatus(canonicalDomain);
@@ -398,7 +398,7 @@ export class ProfileManager extends EventEmitter {
         const loadedMap = this._createCookieHashMap(loadedCookies);
         const areDifferent = this._compareCookieMaps(currentMap, loadedMap);
         
-        console.log(`[checkIfCookiesModified] Comparison result for ${canonicalDomain} (${loadedProfileName}):`, areDifferent ? 'DIFFERENT' : 'SAME');
+//        console.log(`[checkIfCookiesModified] Comparison result for ${canonicalDomain} (${loadedProfileName}):`, areDifferent ? 'DIFFERENT' : 'SAME');
         
         // Update modified status if it changed
         let statusChanged = false;
@@ -468,7 +468,7 @@ export class ProfileManager extends EventEmitter {
     const keys2 = Object.keys(map2);
     
     if (keys1.length !== keys2.length) {
-      console.log(`Cookie count mismatch: ${keys1.length} vs ${keys2.length}`);
+//      console.log(`Cookie count mismatch: ${keys1.length} vs ${keys2.length}`);
       return true; // Maps are different
     }
     
@@ -478,7 +478,7 @@ export class ProfileManager extends EventEmitter {
     // Check for presence of all keys
     for (const key of keys1) {
       if (!map2[key]) {
-        console.log(`Cookie key missing from second map: ${key}`);
+//        console.log(`Cookie key missing from second map: ${key}`);
         return true; // Maps are different
       }
       
@@ -488,13 +488,13 @@ export class ProfileManager extends EventEmitter {
       // Skip detailed comparison for known dynamic cookies
       const cookieName = key.split('|')[0];
       if (dynamicCookies.includes(cookieName)) {
-        console.log(`Skipping detailed comparison for dynamic cookie: ${cookieName}`);
+//        console.log(`Skipping detailed comparison for dynamic cookie: ${cookieName}`);
         continue;
       }
       
       // Compare essential properties (value is most important as name/domain/path are in key)
       if (cookie1.value !== cookie2.value) {
-        console.log(`Cookie value mismatch for ${key}: "${cookie1.value}" vs "${cookie2.value}"`);
+//        console.log(`Cookie value mismatch for ${key}: "${cookie1.value}" vs "${cookie2.value}"`);
         return true; // Maps are different
       }
       
@@ -502,7 +502,7 @@ export class ProfileManager extends EventEmitter {
       if (cookie1.secure !== cookie2.secure || 
           cookie1.httpOnly !== cookie2.httpOnly || 
           cookie1.hostOnly !== cookie2.hostOnly) {
-        console.log(`Cookie flags mismatch for ${key}: secure=${cookie1.secure}/${cookie2.secure}, httpOnly=${cookie1.httpOnly}/${cookie2.httpOnly}, hostOnly=${cookie1.hostOnly}/${cookie2.hostOnly}`);
+//        console.log(`Cookie flags mismatch for ${key}: secure=${cookie1.secure}/${cookie2.secure}, httpOnly=${cookie1.httpOnly}/${cookie2.httpOnly}, hostOnly=${cookie1.hostOnly}/${cookie2.hostOnly}`);
         return true; // Maps are different
       }
       
@@ -511,7 +511,7 @@ export class ProfileManager extends EventEmitter {
         // Allow slight differences in expiration (within 1 minute)
         const diff = Math.abs(cookie1.expirationDate - cookie2.expirationDate);
         if (diff > 60) { // More than 60 seconds difference
-          console.log(`Cookie expiration mismatch for ${key}: ${cookie1.expirationDate} vs ${cookie2.expirationDate}, diff: ${diff}s`);
+//          console.log(`Cookie expiration mismatch for ${key}: ${cookie1.expirationDate} vs ${cookie2.expirationDate}, diff: ${diff}s`);
           return true; // Maps are different
         }
       }
@@ -721,7 +721,7 @@ export class ProfileManager extends EventEmitter {
                }
                
                this.emit('profileUnmodified', { domain: canonicalDomain, profileName: metadata[canonicalDomain].lastLoaded });
-               console.log(`Reset modified status for ${canonicalDomain}.`);
+//               console.log(`Reset modified status for ${canonicalDomain}.`);
                return true;
            }
            return false; // Not modified or no metadata
@@ -731,3 +731,4 @@ export class ProfileManager extends EventEmitter {
        }
    }
 } 
+

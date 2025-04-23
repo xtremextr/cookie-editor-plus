@@ -36,3 +36,4 @@ export class Ad {
     this.endDate = endDate;
   }
 }
+

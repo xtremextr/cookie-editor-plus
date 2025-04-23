@@ -272,3 +272,4 @@ export class ResizeHandler extends EventEmitter {
     }
   }
 } 
+

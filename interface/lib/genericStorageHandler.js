@@ -91,3 +91,4 @@ export class GenericStorageHandler extends EventEmitter {
     }
   }
 }
+

@@ -1,3 +1,7 @@
+/*
+  BACKUP: Full original content of cookie-list.js goes here.
+  This file serves as a complete reference for the refactoring.
+*/
 import { CookieHandlerDevtools } from '../devtools/cookieHandlerDevtools.js';
 import { BrowserDetector } from '../lib/browserDetector.js';
 import { Cookie } from '../lib/cookie.js';
@@ -55,35 +59,9 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
    * @return {Cookie|null} The Cookie object or null if not found.
    */
   function findCookieObject(cookieElement) {
-    const cookieId = cookieElement.dataset.id;
-    const cookieName = cookieElement.dataset.name;
-    
-    // Find the cookie in loadedCookies
-    if (loadedCookies) {
-      // Handle if loadedCookies is an object (the expected case)
-      if (typeof loadedCookies === 'object' && !Array.isArray(loadedCookies)) {
-        if (cookieId && loadedCookies[cookieId]) {
-          return loadedCookies[cookieId].cookie;
-        }
-        
-        // If not found by ID, try to find by name
-        for (const id in loadedCookies) {
-          if (loadedCookies[id].cookie && loadedCookies[id].cookie.name === cookieName) {
-            return loadedCookies[id].cookie;
-          }
-        }
-      } 
-      // Handle if loadedCookies is somehow an array (fallback)
-      else if (Array.isArray(loadedCookies)) {
-        for (const cookie of loadedCookies) {
-          if (cookie.name === cookieName && String(cookie.id) === cookieId) {
-            return cookie;
-          }
-        }
-      }
-    }
-    
-    return null;
+    if (!cookieElement) return null;
+    const cookieId = cookieElement.dataset.cookieId;
+    return cookieId && loadedCookies[cookieId] ? loadedCookies[cookieId] : null;
   }
 
   // Performance optimization: Add cookie caching
@@ -92,7 +70,7 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
     url: '',
     cookies: [],
     timestamp: 0,
-    maxAge: 15000, // Cache cookies for 15 seconds (increased from 1 second)
+    maxAge: 5000, // Cache cookies for 5 seconds (increased from 1 second)
     isValid: function(url) {
       return this.url === url && 
              Date.now() - this.timestamp < this.maxAge;
@@ -158,7 +136,7 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
     if (window._initialized) return;
     window._initialized = true;
 
-    // Inject styles for domainâ€"settings gear and menu
+    // Inject styles for domainâ€‘settings gear and menu
     const style = document.createElement('style');
     style.textContent = `
       .domain-selector-wrapper { position: relative; display: flex; align-items: center; }
@@ -409,20 +387,9 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
         return;
       }
       
-      // Don't expand if we're clicking in the checkbox area during selection mode
-      if (e.target.closest('.cookie-checkbox-container') || 
-          e.target.classList.contains('cookie-checkbox')) {
-        return;
-      }
-      
       const parent = e.target.closest('li');
       const header = parent.querySelector('.header');
       const expando = parent.querySelector('.expando');
-
-      // Check if we have any animation timeouts on this element and clear them
-      if (expando._toggleSlideTimeout) {
-        clearTimeout(expando._toggleSlideTimeout);
-      }
 
       Animate.toggleSlide(expando);
       header.classList.toggle('active');
@@ -451,17 +418,6 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
       if (!cookieName) {
         console.error('Cookie element is missing name data attribute');
         sendNotification('Error identifying cookie to delete', true);
-        return false;
-      }
-      
-      // Check for batch deletion bypass flag
-      if (window.bypassDeleteConfirmation === true) {
-        // Delete immediately without confirmation - used for batch deletions
-        removeCookie({cookieId: cookieId, name: cookieName}, null, (result) => {
-          if (!result) {
-            console.warn(`Potential issues deleting cookie: ${cookieName}`);
-          }
-        });
         return false;
       }
       
@@ -2122,15 +2078,12 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
         await showCookiesForTab(true);
       }
     });
-    
-    // Add document click listener to close settings menu when clicking outside
-    document.addEventListener('click', (e) => {
-      if (settingsMenu && !settingsMenu.classList.contains('hidden')) {
-        if (!settingsMenu.contains(e.target) && e.target !== domainSettingsBtn) {
-          settingsMenu.classList.add('hidden');
-        }
-      }
-    });
+    // On popup open, apply the persisted parent-cookie setting by refreshing the list
+    //if (selectedDomain) {
+      //showCookiesForSelectedDomain(true);
+    //} else {
+      //showCookiesForTab(true);
+    //}
   });
 
   // == End document ready == //
@@ -2324,13 +2277,6 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
     cookiesListHtml = document.createElement('ul');
     cookiesListHtml.appendChild(generateSearchBar());
     
-    // Add the column header
-    const headerTemplate = document.importNode(
-      document.getElementById('tmp-cookie-list-header').content,
-      true
-    );
-    cookiesListHtml.appendChild(headerTemplate);
-    
     // Create document fragment and batch-render cookies
     const fragment = document.createDocumentFragment();
     cookies.forEach(cookie => {
@@ -2366,56 +2312,59 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
     }
   }
   
-  // Find the renderCookies function and update it to include the header
+  // PERFORMANCE OPTIMIZATION: Separate cookie rendering logic for use outside animations
   function renderCookies(cookies, resolve) {
-    clearChildren(cookiesListHtml);
-    
-    if (!cookies || !Object.keys(cookies).length) {
-      cookiesListHtml.appendChild(generateSearchBar());
-      showNoCookies();
-      if (typeof resolve === 'function') {
-        resolve();
+    // Cleanup old Cookie objects
+    Object.keys(loadedCookies).forEach(id => {
+      const cookieObj = loadedCookies[id];
+      if (cookieObj && typeof cookieObj.destroy === 'function') {
+        cookieObj.destroy();
       }
+    });
+    loadedCookies = {};
+    cookies = cookies.sort(sortCookiesByName);
+    // Show correct button bar
+    document.getElementById('button-bar-add').classList.remove('active');
+    document.getElementById('button-bar-import').classList.remove('active');
+    document.getElementById('button-bar-default').classList.add('active');
+    // Handle empty state
+    if (cookies.length === 0) {
+      showNoCookies();
+      resolve();
       return;
     }
-    
+    // Initial list and search bar
+    cookiesListHtml = document.createElement('ul');
     cookiesListHtml.appendChild(generateSearchBar());
+    containerCookie.innerHTML = '';
+    containerCookie.appendChild(cookiesListHtml);
     
-    // Add the column header
-    const headerTemplate = document.importNode(
-      document.getElementById('tmp-cookie-list-header').content,
-      true
-    );
-    cookiesListHtml.appendChild(headerTemplate);
+    // Update the search placeholder after cookies are loaded
+    updateSearchPlaceholder(cookiesListHtml.querySelector('#searchField'));
     
-    const cookiesList = [];
-    for (const cookieId in cookies) {
-      // Insert rest of the renderCookies function unchanged
-      cookiesList.push(cookies[cookieId]);
+    // Batch-render cookies in small chunks so the UI can paint quickly
+    let index = 0;
+    const BATCH_SIZE = 20;
+    function appendBatch() {
+      const frag = document.createDocumentFragment();
+      for (let i = 0; i < BATCH_SIZE && index < cookies.length; i++, index++) {
+        const cookie = cookies[index];
+        const id = Cookie.hashCode(cookie);
+        loadedCookies[id] = new Cookie(id, cookie, optionHandler);
+        frag.appendChild(loadedCookies[id].html);
+      }
+      cookiesListHtml.appendChild(frag);
+      if (index < cookies.length) {
+        // Use requestIdleCallback if available, fallback to setTimeout
+        const runner = window.requestIdleCallback || (cb => setTimeout(cb, 0));
+        runner(appendBatch);
+      } else {
+        // Final update of the search placeholder after all cookies are rendered
+        updateSearchPlaceholder(cookiesListHtml.querySelector('#searchField'));
+        resolve();
+      }
     }
-    
-    cookiesList.sort(sortCookiesByName);
-    
-    cookiesList.forEach(cookie => {
-      const id = Cookie.hashCode(cookie);
-      loadedCookies[id] = new Cookie(id, cookie, optionHandler);
-      cookiesListHtml.appendChild(loadedCookies[id].html);
-    });
-    
-    if (containerCookie.firstChild) {
-      isAnimating = true;
-      Animate.transitionPage(containerCookie, containerCookie.firstChild, cookiesListHtml, 'right', () => { 
-        isAnimating = false; 
-        // Update placeholder after animation completes
-        updateSearchPlaceholder();
-        resolve(); 
-      }, optionHandler.getAnimationsEnabled());
-    } else {
-      containerCookie.appendChild(cookiesListHtml);
-      // Update placeholder after DOM is updated
-      updateSearchPlaceholder();
-      resolve();
-    }
+    appendBatch();
   }
   
   /**
@@ -2545,14 +2494,6 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
             } else {
         cookiesListHtml = document.createElement('ul');
         cookiesListHtml.appendChild(generateSearchBar());
-        
-        // Add the column header
-        const headerTemplate = document.importNode(
-          document.getElementById('tmp-cookie-list-header').content,
-          true
-        );
-        cookiesListHtml.appendChild(headerTemplate);
-        
               sorted.forEach(c => {
                 const id = Cookie.hashCode(c);
                 loadedCookies[id] = new Cookie(id, c, optionHandler);
@@ -3102,7 +3043,6 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
     const targetPath = originalCookie.path;
     const targetDomain = originalCookie.domain;
     const targetStoreId = originalCookie.storeId;
-    const targetSecure = originalCookie.secure; // Added: Get secure flag
     
     // Find and remove the cookie from the UI immediately
     if (cookieId && loadedCookies[cookieId] && loadedCookies[cookieId].html) {
@@ -3123,42 +3063,33 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
     // Construct the specific URL for deletion targeting the exact cookie
     let urlForDelete = baseUrl;
     try {
-      // Determine protocol based on cookie's secure flag
-      const protocol = targetSecure ? 'https://' : 'http://'; // Added: Determine protocol
-
       // Remove leading dot from domain if present
-      const cleanDomain = targetDomain && targetDomain.startsWith('.')
-        ? targetDomain.substring(1)
+      const cleanDomain = targetDomain && targetDomain.startsWith('.') 
+        ? targetDomain.substring(1) 
         : targetDomain;
-
+        
       const cookiePath = targetPath || '/';
-
+      
+      const urlObj = new URL(baseUrl);
       if (cleanDomain) {
-        // CONSTRUCTS URL from cookie protocol + cookie domain + cookie path
-        urlForDelete = `${protocol}${cleanDomain}${cookiePath}`; // Modified
+        urlForDelete = `${urlObj.protocol}//${cleanDomain}${cookiePath}`;
       } else {
         // Use host if domain isn't specified (e.g., hostOnly cookies)
-        // Need the host from the baseUrl for host-only cookies
-        const urlObj = new URL(baseUrl);
-        // CONSTRUCTS URL from cookie protocol + tab host + cookie path
-        urlForDelete = `${protocol}${urlObj.host}${cookiePath}`; // Modified
+        urlForDelete = `${urlObj.protocol}//${urlObj.host}${cookiePath}`;
       }
     } catch (e) {
       console.error('Error constructing specific URL for deletion:', e);
       // Fallback URL construction if primary fails
       if (targetDomain) {
-        // Determine protocol based on cookie's secure flag for fallback too
-        const protocol = targetSecure ? 'https://' : 'http://'; // Added
         const cleanDomain = targetDomain.startsWith('.') ? targetDomain.substring(1) : targetDomain;
         const cookiePath = targetPath || '/';
-        // Assume protocol based on secure flag
-        urlForDelete = `${protocol}${cleanDomain}${cookiePath}`; // Modified
+        // Assume https if protocol unknown
+        urlForDelete = `https://${cleanDomain}${cookiePath}`; 
       } else {
          // If domain is also missing, we might be unable to delete effectively
          console.error("Cannot reliably construct delete URL without domain info.");
          // Attempt deletion with base URL anyway? Or fail? For now, proceed with baseUrl.
-         // This fallback remains potentially problematic but is unchanged.
-         urlForDelete = baseUrl;
+         urlForDelete = baseUrl; 
       }
     }
 
@@ -3385,17 +3316,6 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
   function sortCookiesByName(a, b) {
     const aName = a.name.toLowerCase();
     const bName = b.name.toLowerCase();
-    
-    // Check if the getSortDirection function exists (added by cookie-sort.js)
-    if (typeof window.getSortDirection === 'function') {
-      const sortDirection = window.getSortDirection();
-      // If sort direction is 'desc', reverse the comparison
-      if (sortDirection === 'desc') {
-        return bName < aName ? -1 : bName > aName ? 1 : 0;
-      }
-    }
-    
-    // Default ascending sort
     return aName < bName ? -1 : aName > bName ? 1 : 0;
   }
 
@@ -4696,14 +4616,6 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
   
         cookiesListHtml = document.createElement('ul');
         cookiesListHtml.appendChild(generateSearchBar());
-        
-        // Add the column header
-        const headerTemplate = document.importNode(
-          document.getElementById('tmp-cookie-list-header').content,
-          true
-        );
-        cookiesListHtml.appendChild(headerTemplate);
-        
         cookies.forEach(function (cookie) {
           const id = Cookie.hashCode(cookie);
           loadedCookies[id] = new Cookie(id, cookie, optionHandler);
@@ -7670,14 +7582,6 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
     // Build list
     const ul = document.createElement('ul');
     ul.appendChild(generateSearchBar());
-    
-    // Add the column header
-    const headerTemplate = document.importNode(
-      document.getElementById('tmp-cookie-list-header').content,
-      true
-    );
-    ul.appendChild(headerTemplate);
-    
     cookies.forEach(cookie => {
       const id = Cookie.hashCode(cookie);
       loadedCookies[id] = new Cookie(id, cookie, optionHandler);
@@ -7713,6 +7617,7 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
   let pressTimer = null;
   let isLongPress = false;
   let longPressAnimation = null;
+  let pressStarted = false;
   
   // Attach mousedown event for long-press detection
   refreshButton.addEventListener('mousedown', () => {
@@ -7777,6 +7682,7 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
       longPressAnimation.parentNode.removeChild(longPressAnimation);
     }
     longPressAnimation = null;
+    pressStarted = false;
   });
   
   // Attach click handler with animation and notification
@@ -7914,49 +7820,4 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
     }
     loadedCookies = {};
   });
-
-  // Make required functions available to other modules via the window object
-  function exportFunctionsForSelectionModule() {
-    window.findCookieObject = findCookieObject;
-    window.showShareDialog = showShareDialog;
-    window.getDomainFromUrl = getDomainFromUrl;
-    window.sendNotification = sendNotification;
-    window.cookieHandler = cookieHandler;
-    window.selectedDomain = selectedDomain;
-  }
-  
-  // Export functions when document is loaded
-  document.addEventListener('DOMContentLoaded', exportFunctionsForSelectionModule);
-  
-  function findCookieObject(cookieElement) {
-    const cookieId = cookieElement.dataset.id;
-    const cookieName = cookieElement.dataset.name;
-    
-    // Find the cookie in loadedCookies
-    if (loadedCookies) {
-      // Handle if loadedCookies is an object (the expected case)
-      if (typeof loadedCookies === 'object' && !Array.isArray(loadedCookies)) {
-        if (cookieId && loadedCookies[cookieId]) {
-          return loadedCookies[cookieId].cookie;
-        }
-        
-        // If not found by ID, try to find by name
-        for (const id in loadedCookies) {
-          if (loadedCookies[id].cookie && loadedCookies[id].cookie.name === cookieName) {
-            return loadedCookies[id].cookie;
-          }
-        }
-      } 
-      // Handle if loadedCookies is somehow an array (fallback)
-      else if (Array.isArray(loadedCookies)) {
-        for (const cookie of loadedCookies) {
-          if (cookie.name === cookieName && String(cookie.id) === cookieId) {
-            return cookie;
-          }
-        }
-      }
-    }
-    
-    return null;
-  }
 })();

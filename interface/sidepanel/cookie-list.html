@@ -57,10 +57,12 @@
     <!-- Domain Selector -->
     <div class="container domain-selector-container" style="margin-bottom: 10px;">
       <label for="domain-selector" class="visually-hidden">Select Domain:</label>
-      <select id="domain-selector" class="input">
-        <option value="">Current tab domain</option>
-        <!-- Other domains will be populated by JS -->
-      </select>
+      <div class="domain-selector-wrapper">
+        <select id="domain-selector" class="input">
+          <option value="">Current tab domain</option>
+          <!-- Other domains will be populated by JS -->
+        </select>
+      </div>
     </div>
     <!-- End Domain Selector -->
 
@@ -475,6 +477,21 @@
       </li>
     </template>
 
+    <!-- New template for cookie list header -->
+    <template id="tmp-cookie-list-header">
+      <li>
+        <div class="cookie-list-header">
+          <div class="column-name" id="sort-by-name">
+            Cookies List
+            <svg class="icon sort-icon" id="sort-icon">
+              <use href="../sprites/solid.svg#sort-up"></use>
+            </svg>
+          </div>
+          <div class="column-options">Options</div>
+        </div>
+      </li>
+    </template>
+
     <template id="tmp-export-options">
       <div id="export-menu">
         <h3>Export As:</h3>
@@ -493,6 +510,52 @@
         <div class="ad-actions">
           <button class="dont-show">Not interested</button>
           <button class="later">Later</button>
+        </div>
+      </div>
+    </template>
+
+    <!-- Delete cookie confirmation dialog template -->
+    <template id="tmp-confirm-delete">
+      <div id="confirm-delete-dialog">
+        <div class="dialog-content-box">
+          <button id="cancel-delete-x" class="dialog-close-button" aria-label="Close">
+            <svg class="icon"><use href="../sprites/solid.svg#times"></use></svg>
+          </button>
+          <h3>Confirm Deletion</h3>
+          <p>Are you sure you want to delete this cookie?</p>
+          <div class="confirm-options">
+            <label>
+              <input type="checkbox" id="dont-show-again" />
+              Don't ask again for single cookie deletion
+            </label>
+          </div>
+          <div class="dialog-actions">
+            <button id="cancel-delete" class="browser-style cancel-btn">Cancel</button>
+            <button id="confirm-delete" class="browser-style danger confirm-btn">Delete</button>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- Delete all cookies confirmation dialog template -->
+    <template id="tmp-confirm-delete-all">
+      <div id="confirm-delete-all-dialog">
+        <div class="dialog-content-box">
+          <button id="cancel-delete-all-x" class="dialog-close-button" aria-label="Close">
+            <svg class="icon"><use href="../sprites/solid.svg#times"></use></svg>
+          </button>
+          <h3>Confirm Delete All</h3>
+          <p>Are you sure you want to delete all cookies for the current view?</p>
+          <div class="confirm-options">
+            <label>
+              <input type="checkbox" id="dont-show-again-all" />
+              Don't ask again for deleting all cookies
+            </label>
+          </div>
+          <div class="dialog-actions">
+            <button id="cancel-delete-all" class="browser-style cancel-btn">Cancel</button>
+            <button id="confirm-delete-all" class="browser-style danger confirm-btn">Delete All</button>
+          </div>
         </div>
       </div>
     </template>

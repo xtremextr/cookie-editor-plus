@@ -6,3 +6,4 @@ export const Browsers = Object.freeze({
   Opera: 'opera',
   Safari: 'safari',
 });
+

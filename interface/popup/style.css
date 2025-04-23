@@ -1,5 +1,9 @@
 @import url('../theme/switch.css');
 
+:root {
+  --primary-accent-color-rgb: 0, 122, 255; /* RGB format of the primary accent color */
+}
+
 body {
   display: flex;
   flex-direction: column;
@@ -61,13 +65,21 @@ svg.icon {
   text-overflow: ellipsis;
   min-width: 0;
   flex: 1;
+  position: relative;
+  z-index: 1;
+  user-select: none; /* Add this line */
 }
 
 #history-controls {
   display: flex;
   align-items: center;
   gap: 4px;
-  margin: 0 8px;
+  margin-right: 4px;
+  align-self: center;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
 }
 
 #history-controls button {
@@ -376,8 +388,9 @@ button:focus {
 
 #domain-selector-container label {
   font-weight: 500;
-  margin-right: 3px;
-  font-size: 14px;
+  font-size: 12px;
+  margin-right: 8px;
+  user-select: none; /* Add this line */
 }
 
 .domain-selector-wrapper {
@@ -537,7 +550,8 @@ button:focus {
 #cookie-container .search {
   position: absolute;
   left: 15px;
-  top: 10px;
+  top: 50%;
+  transform: translateY(-50%);
 }
 
 #cookie-container #searchField {
@@ -562,7 +576,8 @@ button:focus {
 }
 
 #cookie-container #searchField::placeholder {
-  color: var(--secondary-text-color);
+  color: var(--placeholder-color);
+  opacity: 0.6;
 }
 
 #cookie-container {
@@ -645,6 +660,8 @@ button:focus {
   user-select: none;
   background-color: var(--primary-surface-color);
   border: 1px solid var(--primary-border-color);
+  padding: 6px 8px; /* Reduced padding from default */
+  min-height: 32px; /* Set a smaller minimum height */
 }
 
 #cookie-container li .header .btns {
@@ -686,8 +703,10 @@ button:focus {
 #cookie-container li .header .icon.arrow {
   -moz-transition: transform 150ms ease-in 0s;
   transition: transform 150ms ease-in 0s;
-  margin-right: 10px;
+  margin-right: 8px; /* Reduced from 10px */
   flex-shrink: 0;
+  width: 14px; /* Explicitly set smaller width */
+  height: 14px; /* Explicitly set smaller height */
 }
 
 #cookie-container li .header.active .icon.arrow {
@@ -700,6 +719,7 @@ button:focus {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-size: 13px; /* Set smaller font size */
 }
 
 #cookie-container li .header .header-name {
@@ -709,10 +729,10 @@ button:focus {
 #cookie-container li .header .header-extra-info {
   flex-shrink: 9999;
   flex-grow: 1;
-  padding-left: 8px;
+  padding-left: 6px; /* Reduced from 8px */
   padding-right: 3px;
   text-align: right;
-  font-size: 0.85em;
+  font-size: 0.82em; /* Reduced from 0.85em */
   color: var(--secondary-text-color);
 }
 
@@ -830,9 +850,9 @@ label {
 .btns button.delete {
   background-color: var(--primary-surface-color);
   border: 1px solid var(--secondary-border-color);
-  height: 24px;
+  height: 22px; /* Reduced from 24px */
   outline: 0 !important;
-  padding: 0 8px 0;
+  padding: 0 6px 0; /* Reduced horizontal padding */
   transition-duration: 250ms;
   transition-property: box-shadow, border;
 }
@@ -845,9 +865,9 @@ label {
 .btns button.save {
   background-color: var(--primary-surface-color);
   border: 1px solid var(--secondary-border-color);
-  height: 24px;
+  height: 22px; /* Reduced from 24px */
   outline: 0 !important;
-  padding: 0 8px 0;
+  padding: 0 6px 0; /* Reduced horizontal padding */
   transition-duration: 250ms;
   transition-property: box-shadow, border;
 }
@@ -858,13 +878,18 @@ label {
 }
 
 .action-btns button {
-  flex: 1 1;
+  min-width: 28px; /* Reduced from 32px */
+  width: 28px; /* Reduced from 32px */
+  min-height: 28px; /* Reduced from 32px */ 
+  height: 28px; /* Reduced from 32px */
+  border-radius: 50%;
   border: none;
-  background-color: transparent;
-  cursor: pointer;
-  padding: 8px;
-  transition: color 75ms;
-  transition-timing-function: ease-in;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+  margin: 3px; /* Reduced from 4px */
+  flex: 0 0 28px; /* Reduced from 32px */
 }
 
 .action-btns button,
@@ -1043,7 +1068,7 @@ body,
   border-radius: 4px;
   color: var(--notification-text-color);
   font-size: 12px;
-  pointer-events: auto;
+  pointer-events: none; /* allow clicks through the notification */
   animation-duration: 0.2s;
   animation-fill-mode: both;
   opacity: 0;
@@ -1095,6 +1120,7 @@ body,
   background-color: transparent;
   cursor: pointer;
   fill: var(--notification-dismiss-color);
+  pointer-events: auto; /* ensure dismiss button remains clickable */
 }
 
 #notification-dismiss svg {
@@ -1316,18 +1342,18 @@ body,
 
 /* Actions for expanded cookie buttons - ensure equal sizes */
 .action-btns button {
-  min-width: 32px;
-  width: 32px;
-  min-height: 32px; 
-  height: 32px;
+  min-width: 28px; /* Reduced from 32px */
+  width: 28px; /* Reduced from 32px */
+  min-height: 28px; /* Reduced from 32px */ 
+  height: 28px; /* Reduced from 32px */
   border-radius: 50%;
   border: none;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: background-color 0.2s;
-  margin: 4px;
-  flex: 0 0 32px; /* Prevent flex stretching */
+  margin: 3px; /* Reduced from 4px */
+  flex: 0 0 28px; /* Reduced from 32px */
 }
 
 .action-btns button.delete {
@@ -1521,18 +1547,14 @@ body,
 }
 
 #profile-management .text-section-header {
-  font-size: 1.2em;
   font-weight: 500;
+  letter-spacing: 0.5px;
+  font-size: 13px;
+  /* text-transform: uppercase; */ /* Removed this line to prevent all caps */
+  line-height: 1.2;
   color: var(--primary-text-color);
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
-  display: block;
-  width: auto;
-  max-width: 70%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  line-height: 1.4; /* Add consistent line height */
-  padding: 2px 0; /* Add small vertical padding */
+  flex: 1;
+  user-select: none; /* Add this line */
 }
 
 #profile-management .panel-section-formElements {
@@ -1881,7 +1903,8 @@ body,
 }
 
 .password-container {
-  margin: 8px 0 12px;
+  margin-bottom: -12px;
+  margin-top: 2px;
   padding: 8px;
   background-color: var(--secondary-surface-color);
   border-radius: 4px;
@@ -2401,6 +2424,11 @@ body,
   align-items: center;
   gap: 4px;
   margin-right: 4px;
+  align-self: center;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
 }
 
 #history-controls button {
@@ -2681,4 +2709,407 @@ button.delete:not(:hover):not(:focus)::after {
 #cookie-container li .header:not(.active) .btns button.save:hover svg,
 #cookie-container li .header:not(.active) .btns button.save:focus svg {
   fill: var(--primary-text-color) !important;
+}
+
+/* Tighten gap after share-profiles checkbox */
+.share-options > .option-group:first-child {
+  margin-bottom: 4px;
+}
+
+/* Cookie list header bar */
+.cookie-list-header {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 10px; /* Reduced padding */
+  border-bottom: none;
+  background: linear-gradient(to bottom, 
+    var(--primary-surface-color) 40%, 
+    rgba(0,0,0,0.02) 100%);
+  font-weight: 500;
+  font-size: 9px; /* Reduced from 10px */
+  color: var(--secondary-text-color);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  box-shadow: 
+    0 1px 3px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  position: relative;
+  border-radius: 4px 4px 0 0;
+  height: 16px; /* Reduced from 18px */
+  align-items: center;
+}
+
+.cookie-list-header::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(to right, 
+    rgba(0,0,0,0.05), 
+    rgba(0,0,0,0.1), 
+    rgba(0,0,0,0.05)); /* Subtle gradient for modern look */
+  pointer-events: none;
+}
+
+.cookie-list-header .column-name {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s ease;
+  border-radius: 3px;
+  padding: 2px 6px; /* Reduced padding */
+  text-align: center;
+  font-weight: 600; /* Made text slightly bolder */
+}
+
+.cookie-list-header .column-name:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+  transform: translateY(-1px); /* Subtle lift effect on hover */
+}
+
+.cookie-list-header .sort-icon {
+  margin-left: 4px;
+  width: 8px; /* Reduced from 10px */
+  height: 8px; /* Reduced from 10px */
+  transition: transform 0.3s ease-in-out;
+}
+
+.cookie-list-header .sort-icon.desc {
+  /* transform is now applied directly via JavaScript for better reliability */
+  transform: rotate(180deg) !important; /* Added !important to ensure it takes precedence */
+}
+
+.cookie-list-header .column-options {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 77px; /* Further reduced from 90px */
+  text-align: center;
+  padding: 1px 3px; /* Further reduced padding */
+  flex-shrink: 0;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  font-size: 9px; /* Slightly smaller text */
+}
+
+/* Dark theme support */
+[data-theme="dark"] .cookie-list-header {
+  background: linear-gradient(to bottom, 
+    var(--secondary-surface-color) 40%, 
+    rgba(0,0,0,0.2) 100%); /* Darker gradient for dark theme */
+  box-shadow: 
+    0 1px 3px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07); /* Subtler inner highlight for dark theme */
+}
+
+[data-theme="dark"] .cookie-list-header .column-name:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+  transform: translateY(-1px);
+}
+
+.cookie-checkbox-container {
+  margin-right: 6px; /* Reduced from 8px */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px; /* Reduced from 30px */
+  min-height: 16px; /* Reduced from 20px */
+  padding: 2px; /* Reduced from 3px */
+  position: relative; /* For positioning the checkbox */
+}
+
+.cookie-checkbox {
+  width: 11px; /* Reduced from 12px */
+  height: 11px; /* Reduced from 12px */
+  cursor: pointer;
+  position: relative;
+  z-index: 2; /* Ensure checkbox is above other elements */
+  margin: 0; /* Remove default margins */
+}
+
+/* Add a clickable pseudo-element to increase click area without changing visual size */
+.cookie-checkbox-container::before {
+  content: '';
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  right: -8px;
+  bottom: -8px;
+  z-index: 1; /* Behind the checkbox but still part of the container */
+  cursor: pointer;
+}
+
+.selection-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  background-color: var(--dropdown-bg);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border-radius: 6px;
+  z-index: 100;
+  min-width: 150px;
+  display: none;
+  opacity: 0;
+  transform: translateY(-8px);
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.selection-dropdown.visible {
+  display: block;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.selection-menu-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  color: var(--primary-text-color);
+}
+
+.selection-menu-item svg.icon {
+  margin-right: 8px;
+  width: 14px;
+  height: 14px;
+}
+
+.selection-menu-item:hover {
+  background-color: var(--menu-surface-hover-color);
+}
+
+.selection-menu-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.selection-menu-divider {
+  height: 1px;
+  background-color: var(--primary-border-color);
+  margin: 4px 0;
+}
+
+/* Dark theme adjustments */
+[data-theme="dark"] .selection-dropdown {
+  background-color: #333;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="dark"] .selection-menu-item:hover {
+  background-color: #444;
+}
+
+[data-theme="dark"] .selection-menu-divider {
+  background-color: #444;
+}
+
+[data-theme="dark"] .selection-toggle:hover {
+  background-color: #444;
+}
+
+#confirm-delete-selected-dialog {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.7);
+  z-index: 10000;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+#confirm-delete-selected-dialog.visible {
+  opacity: 1;
+}
+
+#confirm-delete-selected-dialog .dialog-content {
+  background-color: #fff;
+  padding: 20px;
+  border-radius: 8px;
+  width: 80%;
+  max-width: 400px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+}
+
+#confirm-delete-selected-dialog .dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+#confirm-delete-selected-dialog .dialog-header h3 {
+  margin: 0;
+  color: #333;
+}
+
+#confirm-delete-selected-dialog .close-button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 5px;
+  font-size: 20px;
+  color: #888;
+}
+
+#confirm-delete-selected-dialog .dialog-body {
+  margin-bottom: 20px;
+}
+
+#confirm-delete-selected-dialog .checkbox-container {
+  display: flex;
+  align-items: center;
+  margin-top: 10px;
+}
+
+#confirm-delete-selected-dialog .checkbox-text {
+  margin-left: 8px;
+}
+
+#confirm-delete-selected-dialog .dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+#confirm-delete-selected-dialog button {
+  padding: 8px 16px;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+}
+
+#confirm-delete-selected-dialog .btn-secondary {
+  background-color: #f1f1f1;
+  color: #333;
+}
+
+#confirm-delete-selected-dialog .btn-delete {
+  background-color: #e74c3c;
+  color: white;
+}
+
+/* Dark mode */
+[data-theme="dark"] #confirm-delete-selected-dialog .dialog-content {
+  background-color: #2c2c2c;
+  color: #e0e0e0;
+}
+
+[data-theme="dark"] #confirm-delete-selected-dialog .dialog-header h3 {
+  color: #e0e0e0;
+}
+
+[data-theme="dark"] #confirm-delete-selected-dialog .close-button {
+  color: #a0a0a0;
+}
+
+[data-theme="dark"] #confirm-delete-selected-dialog .btn-secondary {
+  background-color: #3a3a3a;
+  color: #e0e0e0;
+}
+
+[data-theme="dark"] #confirm-delete-selected-dialog .btn-delete {
+  background-color: #c0392b;
+}
+
+[data-theme="dark"] .selection-toggle.active {
+  color: var(--primary-accent-color);
+  background-color: rgba(var(--primary-accent-color-rgb), 0.2);
+  border: 1px solid var(--primary-accent-color);
+}
+
+[data-theme="dark"] .selection-toggle.has-selected {
+  background-color: rgba(var(--primary-accent-color-rgb), 0.3);
+  border: 1px solid var(--primary-accent-color);
+  animation: rainbow-glow 3s linear infinite;
+}
+
+/* Cookie Selection Styles */
+.selection-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  margin-right: 6px; /* Reduced from 8px */
+  width: 14px;  /* Reduced from 16px */
+  height: 14px; /* Reduced from 16px */
+  border-radius: 3px;
+  transition: background-color 0.2s, transform 0.1s;
+  position: relative;
+  z-index: 10; /* Higher z-index to ensure it's above the column */
+  flex-shrink: 0; /* Prevent shrinking */
+  background-color: rgba(0, 0, 0, 0.03); /* Light background to make it more visible */
+}
+
+.selection-toggle:hover {
+  background-color: var(--menu-surface-hover-color);
+  transform: scale(1.05);
+}
+
+.selection-toggle:active {
+  transform: scale(0.95);
+}
+
+.selection-toggle .selection-icon {
+  width: 9x;  /* Reduced from 10px */
+  height: 9px; /* Reduced from 10px */
+  pointer-events: none; /* Ensure clicks go through to the parent */
+}
+
+[data-theme="dark"] .selection-toggle {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.selection-toggle.active {
+  color: var(--primary-accent-color);
+  background-color: rgba(var(--primary-accent-color-rgb), 0.1);
+  border: 1px solid var(--primary-accent-color);
+}
+
+.selection-toggle.active .selection-icon {
+  fill: var(--primary-accent-color);
+}
+
+/* Indicator for when there are selected cookies */
+.selection-toggle.has-selected {
+  background-color: transparent;
+  border: none;
+  animation: rainbow-glow 3s linear infinite;
+}
+
+/* Rainbow animation for selected cookies */
+@keyframes rainbow-glow {
+  0% { box-shadow: 0 0 5px rgba(255, 0, 0, 0.6); }
+  16.6% { box-shadow: 0 0 5px rgba(255, 165, 0, 0.6); }
+  33.3% { box-shadow: 0 0 5px rgba(255, 255, 0, 0.6); }
+  50% { box-shadow: 0 0 5px rgba(0, 255, 0, 0.6); }
+  66.6% { box-shadow: 0 0 5px rgba(0, 0, 255, 0.6); }
+  83.3% { box-shadow: 0 0 5px rgba(75, 0, 130, 0.6); }
+  100% { box-shadow: 0 0 5px rgba(255, 0, 0, 0.6); }
+}
+
+[data-theme="dark"] .selection-toggle.has-selected {
+  background-color: transparent;
+  border: none;
+  animation: rainbow-glow 3s linear infinite;
+}
+
+[data-theme="dark"] .selection-toggle {
+  background-color: rgba(255, 255, 255, 0.05);
 }

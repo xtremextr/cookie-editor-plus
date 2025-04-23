@@ -39,3 +39,4 @@ export class EventEmitter {
     this.queue[event].push(callback);
   }
 }
+

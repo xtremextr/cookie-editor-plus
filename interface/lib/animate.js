@@ -12,14 +12,14 @@ export class Animate {
     let elMaxHeight = 0;
     const self = this;
     
-    // Store original overflow settings of the container to restore later
-    const cookieContainer = document.getElementById('cookie-container');
-    
-    // Don't block scrolling on the main container anymore
-    // Instead, only manage overflow on the specific element being animated
-    
     // Start with display flex but opacity 0 to allow height calculation without visual jump
     el.style.display = 'flex';
+
+    // Clear any existing animation timeouts to avoid conflicts
+    if (el._toggleSlideTimeout) {
+      clearTimeout(el._toggleSlideTimeout);
+      delete el._toggleSlideTimeout;
+    }
 
     // Set up transitionend listener
     const onTransitionEnd = function() {
@@ -31,11 +31,27 @@ export class Animate {
         el.style.display = 'none';
       }
       
+      // Clear the timeout since transition completed normally
+      if (el._toggleSlideTimeout) {
+        clearTimeout(el._toggleSlideTimeout);
+        delete el._toggleSlideTimeout;
+      }
+      
       // Remove event listener to prevent memory leaks
       el.removeEventListener('transitionend', onTransitionEnd);
     };
     
     el.addEventListener('transitionend', onTransitionEnd);
+
+    // Set a safety timeout in case the transition event doesn't fire
+    // This ensures the animation completes even if there's an issue
+    el._toggleSlideTimeout = setTimeout(() => {
+      // Only run this if the event listener is still active
+      if (el._toggleSlideTimeout) {
+        console.log("Toggle slide safety timeout triggered");
+        onTransitionEnd();
+      }
+    }, 500); // 500ms should be enough for the animation to complete
 
     if (el.getAttribute('data-max-height')) {
       // For previously calculated elements, we use the cached value
@@ -90,9 +106,6 @@ export class Animate {
       );
     }
     
-    // Don't block scrolling on the main container anymore
-    // Instead, only manage overflow on the specific element being animated
-    
     // Check if advanced forms are being shown or hidden
     const advancedForms = el.querySelectorAll('.advanced-form');
     const hasVisibleAdvancedForms = Array.from(advancedForms).some(form => 
@@ -132,7 +145,6 @@ export class Animate {
       // Safety timeout in case the transition event doesn't fire
       setTimeout(function() {
         // Also remove maxHeight constraint after a safe period
-        // This ensures content is fully visible even if transition events fail
         if (hasVisibleAdvancedForms) {
           el.style.maxHeight = 'none';
         }
@@ -189,7 +201,7 @@ export class Animate {
     newContainer.style.top = '0';
     newContainer.style.width = '100%';
     newContainer.style.height = '100%';
-    newContainer.style.transition = 'all 0.3s ease-in-out';
+    newContainer.style.transition = 'all 0.2s ease-out'; // Faster transition
     newContainer.style.zIndex = '2';
     newContainer.style.opacity = '0';
     
@@ -207,7 +219,7 @@ export class Animate {
     oldContainer.style.top = '0';
     oldContainer.style.width = '100%';
     oldContainer.style.height = '100%';
-    oldContainer.style.transition = 'all 0.3s ease-in-out';
+    oldContainer.style.transition = 'all 0.2s ease-out'; // Faster transition
     oldContainer.style.zIndex = '1';
     oldContainer.style.opacity = '1';
 
@@ -231,7 +243,6 @@ export class Animate {
       // Don't proceed if we don't have the same elements anymore
       if (container._currentTransitionOldPage !== oldPage || 
           container._currentTransitionNewPage !== newPage) {
-        console.warn("Transition elements changed, skipping cleanup");
         return;
       }
       
@@ -273,10 +284,8 @@ export class Animate {
 
     // Ensure newContainer is valid before adding listener
     if (newContainer) {
-        newContainer.addEventListener('transitionend', onTransitionEnd, { once: true }); // Use once: true for safety
+        newContainer.addEventListener('transitionend', onTransitionEnd, { once: true });
     } else {
-         console.error("newContainer is null, cannot add transitionend listener.");
-         // Clean up immediately if newContainer setup failed?
          cleanup(true); // Treat as cancelled if setup failed
          return; 
     }
@@ -296,12 +305,10 @@ export class Animate {
       
       // Fallback timeout in case transitionend doesn't fire reliably
       setTimeout(() => {
-         // Check if cleanup hasn't already run
          if (container.dataset.isAnimating === 'true' && !cleanupComplete) {
-            console.warn("TransitionEnd event did not fire, cleaning up via timeout.");
             cleanup(); 
          }
-      }, 400); // A bit longer than the transition duration (0.3s)
+      }, 300); // Reduced from 400ms to 300ms
     });
   }
 
@@ -312,19 +319,39 @@ export class Animate {
    * @return {number} Height of the element.
    */
   static getHeight(el, ignoreMaxHeight) {
+    // Use simpler height calculation for performance
+    // Fast path for elements with no children or simple structure
+    const hasComplexContent = el.querySelectorAll('.advanced-form.show').length > 0;
+    
+    if (!hasComplexContent) {
+      // Store current maxHeight value
+      const currentMaxHeight = el.style.maxHeight;
+      
+      // Temporarily reset maxHeight to get real height
+      if (ignoreMaxHeight) {
+        el.style.maxHeight = 'none';
+      }
+      
+      const height = el.scrollHeight;
+      
+      // Restore original maxHeight
+      if (ignoreMaxHeight) {
+        el.style.maxHeight = currentMaxHeight;
+      }
+      
+      return height;
+    }
+    
+    // Use the more expensive cloning approach only for complex elements
     const clone = el.cloneNode(true);
     clone.style.visibility = 'hidden';
     clone.style.position = 'absolute';
     clone.style.height = 'auto';
     
-    // Remove caching to ensure fresh height calculation every time
-    // This is important for elements with dynamic content like the advanced form
-    
     if (ignoreMaxHeight) {
       clone.style.maxHeight = 'none';
     }
     
-    // Force new stacking context to prevent affecting other elements
     clone.style.zIndex = '-1';
     
     // Ensure any nested advanced-form elements that are shown in the original 
@@ -352,11 +379,12 @@ export class Animate {
   }
 
   /**
-   * Checks if the element is currently hidden.
-   * @param {element} el Element to check if it is hidden.
+   * Check if an element is hidden.
+   * @param {element} el Element to check.
    * @return {boolean} True if the element is hidden.
    */
   static isHidden(el) {
-    return el.offsetHeight <= 0;
+    return el.offsetHeight === 0;
   }
 }
+

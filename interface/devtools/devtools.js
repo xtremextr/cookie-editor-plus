@@ -47,3 +47,4 @@ import { OptionsHandler } from '../lib/optionsHandler.js';
     }
   }
 })();
+

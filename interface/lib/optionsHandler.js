@@ -368,3 +368,4 @@ export class OptionsHandler extends EventEmitter {
     }
   };
 }
+

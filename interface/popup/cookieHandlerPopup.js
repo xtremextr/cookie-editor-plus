@@ -127,7 +127,7 @@ export class CookieHandlerPopup extends GenericCookieHandler {
           this._lastChangeTimestamp = changeTimestamp;
           this.emit('cookiesChanged', changeInfo);
         } else {
-          console.log('Throttling cookie change event, too soon after previous change');
+//          console.log('Throttling cookie change event, too soon after previous change');
         }
       }
     } finally {
@@ -216,3 +216,4 @@ export class CookieHandlerPopup extends GenericCookieHandler {
     }
   };
 }
+

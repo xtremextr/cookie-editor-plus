@@ -14,6 +14,24 @@ import { extractSharedDataFromUrl } from './interface/lib/sharing/cookieSharing.
   // Track domains we have permission for
   const permittedDomains = new Set();
   
+  // Periodically prune stale connections whose sender tab has closed
+  setInterval(async () => {
+    try {
+      const tabs = await browserDetector.getApi().tabs.query({});
+      const validIds = tabs.map(t => t.id);
+      for (const key in connections) {
+        const port = connections[key];
+        // Port.sender.tab.id exists for tab connections
+        const tabId = port.sender?.tab?.id;
+        if (typeof tabId === 'number' && !validIds.includes(tabId)) {
+          delete connections[key];
+        }
+      }
+    } catch (e) {
+      // ignore errors in cleanup
+    }
+  }, 300000); // every 5 minutes
+  
   // Variables for badge pulsing effect
   let badgePulseInterval = null;
   let badgePulseState = false;
@@ -531,6 +549,10 @@ import { extractSharedDataFromUrl } from './interface/lib/sharing/cookieSharing.
       cookieChangeHistory[name].push(now);
       // Keep only recent changes within detection window
       cookieChangeHistory[name] = cookieChangeHistory[name].filter(timestamp => now - timestamp <= dynamicDetectionWindow);
+      // Remove empty history entries to prevent memory buildup
+      if (cookieChangeHistory[name].length === 0) {
+        delete cookieChangeHistory[name];
+      }
       // If changes exceed threshold, mark as dynamic and skip
       if (cookieChangeHistory[name].length > dynamicDetectionThreshold) {
         dynamicCookieNames.add(name);
@@ -654,3 +676,4 @@ import { extractSharedDataFromUrl } from './interface/lib/sharing/cookieSharing.
     return;
   }
 })();
+

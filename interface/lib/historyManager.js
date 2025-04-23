@@ -7,10 +7,12 @@ export class HistoryManager {
    * Constructs a new HistoryManager.
    * @param {number} maxStackSize - Maximum number of operations to store in history
    */
-  constructor(maxStackSize = 50) {
+  constructor(maxStackSize = 30) {
     this.undoStack = [];
     this.redoStack = [];
     this.maxStackSize = maxStackSize;
+    // Cap the number of cookies stored per history entry
+    this.MAX_COOKIES_PER_ENTRY = 30;
     this.listeners = {
       change: [],
     };
@@ -67,9 +69,12 @@ export class HistoryManager {
       cookieData: cookieData
     };
 
-    // Store the new cookie data for operations that need it
+    // Store and truncate the new cookie data for operations that need it
     if (['edit', 'create', 'importCookies', 'loadProfile'].includes(type) && newCookieData !== undefined) {
       entry.newCookieData = newCookieData;
+      if (Array.isArray(entry.newCookieData) && entry.newCookieData.length > this.MAX_COOKIES_PER_ENTRY) {
+        entry.newCookieData = entry.newCookieData.slice(-this.MAX_COOKIES_PER_ENTRY);
+      }
     }
 
     // Add to undo stack
@@ -170,3 +175,4 @@ export class HistoryManager {
     this.emit('change');
   }
 } 
+

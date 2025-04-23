@@ -10,3 +10,4 @@ export const ExtraInfos = Object.freeze({
   Secure: 'secure',
   Httponly: 'httponly',
 });
+

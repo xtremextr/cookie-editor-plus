@@ -33,3 +33,4 @@ export class JsonFormat {
     return JSON.stringify(exportedCookies, null, 4);
   }
 }
+

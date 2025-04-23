@@ -266,6 +266,8 @@
 
     <script src="../lib/isPopup.js"></script>
     <script type="module" src="cookie-list.js"></script>
+    <script src="cookie-sort.js"></script>
+    <script src="cookie-selection.js"></script>
 
     <template id="tmp-cookie">
       <li data-name="" class="cookie">
@@ -275,6 +277,9 @@
           role="button"
           aria-expanded="false"
         >
+          <div class="cookie-checkbox-container" style="display: none;">
+            <input type="checkbox" class="cookie-checkbox" aria-label="Select cookie" />
+          </div>
           <svg class="icon arrow">
             <use href="../sprites/solid.svg#angle-down"></use>
           </svg>
@@ -535,7 +540,7 @@
           <svg class="icon search">
             <use href="../sprites/solid.svg#search"></use>
           </svg>
-          <input id="searchField" type="text" placeholder="Search" />
+          <input id="searchField" type="text" placeholder="Search (0 cookies)" />
           <div id="searchOptionsToggle">
             <svg class="icon filter">
               <use href="../sprites/solid.svg#filter"></use>
@@ -553,6 +558,26 @@
               </label>
             </div>
           </div>
+        </div>
+      </li>
+    </template>
+
+    <!-- New template for cookie list header -->
+    <template id="tmp-cookie-list-header">
+      <li>
+        <div class="cookie-list-header">
+          <div class="selection-toggle" id="toggle-selection" title="Enable selection mode">
+            <svg class="icon selection-icon">
+              <use href="../sprites/solid.svg#check-square"></use>
+            </svg>
+          </div>
+          <div class="column-name" id="sort-by-name">
+            Cookies List
+            <svg class="icon sort-icon" id="sort-icon">
+              <use href="../sprites/solid.svg#sort-up"></use>
+            </svg>
+          </div>
+          <div class="column-options">Options</div>
         </div>
       </li>
     </template>
@@ -692,18 +717,6 @@
               </button>
             </div>
             <div class="password-strength" id="password-strength"></div>
-          </div>
-          <div class="option-group">
-            <label>
-              <input type="checkbox" id="share-expire" />
-              Link expires after 24 hours
-            </label>
-          </div>
-          <div class="option-group">
-            <label>
-              <input type="checkbox" id="share-never-expire" />
-              Link never expires
-            </label>
           </div>
         </div>
         <div class="share-url-container">
@@ -881,6 +894,34 @@
             <button id="confirm-delete-profile" class="browser-style danger confirm-btn">Delete</button>
           </div>
         </div>
+      </div>
+    </template>
+    
+    <!-- Selection menu template -->
+    <template id="tmp-selection-menu">
+      <div id="selection-menu" class="selection-dropdown">
+        <button id="disable-selection" class="selection-menu-item">
+          <svg class="icon"><use href="../sprites/solid.svg#times"></use></svg>
+          Disable Selection
+        </button>
+        <div class="selection-menu-divider"></div>
+        <button id="delete-selected" class="selection-menu-item" disabled>
+          <svg class="icon"><use href="../sprites/solid.svg#trash"></use></svg>
+          Delete Selected
+        </button>
+        <button id="share-selected" class="selection-menu-item" disabled>
+          <svg class="icon"><use href="../sprites/solid.svg#share"></use></svg>
+          Share Selected
+        </button>
+        <div class="selection-menu-divider"></div>
+        <button id="select-all" class="selection-menu-item">
+          <svg class="icon"><use href="../sprites/solid.svg#check-square"></use></svg>
+          Select All
+        </button>
+        <button id="deselect-all" class="selection-menu-item" disabled>
+          <svg class="icon"><use href="../sprites/solid.svg#square"></use></svg>
+          Deselect All
+        </button>
       </div>
     </template>
   </body>

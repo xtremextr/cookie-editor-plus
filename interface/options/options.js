@@ -300,10 +300,30 @@ document.addEventListener('DOMContentLoaded', async (event) => {
    * Resets all confirmation dialog preferences
    */
   async function resetConfirmationDialogs() {
-    await storageHandler.removeLocal('showDeleteConfirmation');
-    await storageHandler.removeLocal('showDeleteAllConfirmation');
-    await storageHandler.removeLocal('showProfileLoadConfirmation');
-    await storageHandler.removeLocal('showDeleteProfileConfirmation');
-    showNotification('✓ All confirmation dialogs have been reset successfully!', false, 4000);
+    try {
+      // Set all confirmations to true explicitly before removing them
+      await storageHandler.setLocal('showDeleteConfirmation', true);
+      await storageHandler.setLocal('showDeleteAllConfirmation', true);
+      await storageHandler.setLocal('showProfileLoadConfirmation', true);
+      await storageHandler.setLocal('showDeleteProfileConfirmation', true);
+      await storageHandler.setLocal('showBatchDeleteConfirmation', true);
+      
+      // Also remove them to be extra safe
+      await storageHandler.removeLocal('showDeleteConfirmation');
+      await storageHandler.removeLocal('showDeleteAllConfirmation');
+      await storageHandler.removeLocal('showProfileLoadConfirmation');
+      await storageHandler.removeLocal('showDeleteProfileConfirmation');
+      await storageHandler.removeLocal('showBatchDeleteConfirmation');
+      
+      // Also clear the old localStorage key for batch delete confirmation
+      localStorage.removeItem('dontShowBatchDeleteConfirmation');
+      
+      console.log('Successfully reset all confirmation dialogs');
+      showNotification('✓ All confirmation dialogs have been reset successfully!', false, 4000);
+    } catch (err) {
+      console.error('Error resetting confirmation dialogs:', err);
+      showNotification('❌ Error resetting confirmation dialogs. Please try again.', true, 4000);
+    }
   }
 });
+

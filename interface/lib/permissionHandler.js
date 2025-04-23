@@ -205,3 +205,4 @@ export class PermissionHandler {
     return parts[1] + '.' + parts[0];
   }
 }
+

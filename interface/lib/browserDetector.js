@@ -109,3 +109,4 @@ export class BrowserDetector {
     return /android|mobi|tablet|ipad|iphone/i.test(userAgent.toLowerCase());
   }
 }
+

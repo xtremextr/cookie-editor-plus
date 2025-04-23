@@ -25,3 +25,4 @@ export class Options {
     this.actionButtonPosition = 'left';
   }
 }
+

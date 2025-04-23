@@ -44,6 +44,7 @@
       --primary-border-color: ${theme === THEMES.Light ? '#c5c5c5' : '#696969'} !important;
       --primary-text-color: ${theme === THEMES.Light ? '#000000' : '#fafafa'} !important;
       --primary-accent-color: ${theme === THEMES.Light ? '#4285f4' : '#1b98f1'} !important;
+      --primary-accent-color-rgb: ${theme === THEMES.Light ? '66, 133, 244' : '27, 152, 241'} !important;
       --primary-accent-darker: ${theme === THEMES.Light ? '#3367d6' : '#1b7bca'} !important;
       --secondary-surface-color: ${theme === THEMES.Light ? '#eaeaea' : '#303134'} !important;
       --menu-surface-color: ${theme === THEMES.Light ? '#ffffff' : '#45474d'} !important;
@@ -128,3 +129,4 @@
     }, 300);
   });
 })(); 
+
