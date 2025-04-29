@@ -405,5 +405,41 @@ export class GenericCookieHandler extends EventEmitter {
       callback(Array.from(domains).sort());
     });
   }
+
+  /**
+   * Gets all cookies stored in the browser across all domains and stores.
+   * @param {function} callback Function to call with the array of cookies or an empty array on error.
+   */
+  getAllBrowserCookies(callback) {
+    const filter = {}; // Empty filter gets all cookies
+
+    if (this.browserDetector.supportsPromises()) {
+      this.browserDetector
+        .getApi()
+        .cookies.getAll(filter)
+        .then(
+          (cookies) => {
+            callback(cookies || []); // Ensure array even if API returns null/undefined
+          },
+          (error) => {
+            console.error("Error getting all browser cookies (Promise):", error);
+            callback([]); // Pass empty array on error
+          }
+        );
+    } else {
+      this.browserDetector.getApi().cookies.getAll(
+        filter,
+        (cookies) => {
+            const error = this.browserDetector.getApi().runtime.lastError;
+            if (error) {
+                console.error("Error getting all browser cookies (Callback):", error);
+                callback([]); // Pass empty array on error
+            } else {
+                callback(cookies || []); // Ensure array even if API returns null/undefined
+            }
+        }
+      );
+    }
+  }
 }
 

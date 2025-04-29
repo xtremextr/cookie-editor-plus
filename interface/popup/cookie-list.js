@@ -158,7 +158,7 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
     if (window._initialized) return;
     window._initialized = true;
 
-    // Inject styles for domainâ€"settings gear and menu
+    // Inject styles for domain"settings gear and menu
     const style = document.createElement('style');
     style.textContent = `
       .domain-selector-wrapper { position: relative; display: flex; align-items: center; }
@@ -1951,14 +1951,24 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
     document
       .querySelector('#menu-all-options')
       .addEventListener('click', function (e) {
-        if (browserDetector.getApi().runtime.openOptionsPage) {
-          browserDetector.getApi().runtime.openOptionsPage();
+        const preferredPage = optionHandler.getPreferredOptionsPage();
+
+        if (preferredPage === 'v2') {
+          // Open v2 options page in a new tab
+          browserDetector.getApi().tabs.create({
+            url: browserDetector.getApi().runtime.getURL('interface/options/options-v2.html')
+          });
         } else {
+          // Open original options page as popup (default behavior)
+          if (browserDetector.getApi().runtime.openOptionsPage) {
+            browserDetector.getApi().runtime.openOptionsPage();
+          } else {
           window.open(
             browserDetector
               .getApi()
               .runtime.getURL('interface/options/options.html'),
           );
+        }
         }
       });
 
@@ -1970,11 +1980,13 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
       triggerNotification();
     });
 
-    document
-      .getElementById('notification-dismiss')
-      .addEventListener('click', (e) => {
+    // Add handler for the notification dismiss button, if it exists
+    const notificationDismissButton = document.getElementById('notification-dismiss');
+    if (notificationDismissButton) {
+      notificationDismissButton.addEventListener('click', (e) => {
         hideNotification();
       });
+    }
 
     adjustWidthIfSmaller();
 
@@ -2121,6 +2133,8 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
       } else {
         await showCookiesForTab(true);
       }
+      // Dispatch event after refresh completes
+      document.dispatchEvent(new CustomEvent('cookieListRefreshed'));
     });
     
     // Add document click listener to close settings menu when clicking outside
@@ -2163,8 +2177,8 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
     isAnimating = true;
 
     // Get the current tab URL's domain
-    const currentUrl = cookieHandler.currentTab.url;
-    const domain = profileManager.getDomainFromUrl(currentUrl);
+    const currentUrl = cookieHandler.currentTab?.url; // Use optional chaining
+    const domain = currentUrl ? profileManager.getDomainFromUrl(currentUrl) : null;
     
     // Reset the permission requested flag if the domain has changed
     if (currentDomain !== domain) {
@@ -2191,24 +2205,65 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
     if (subtitleLine) {
       subtitleLine.textContent = domain || cookieHandler.currentTab.url;
     }
-    
-    //console.log(`[showCookiesForTab] Checking permissions for: ${currentUrl}`);
-    // Check if permissions are available
+
+    // --- BEGIN: Check for both HTTPS and HTTP permissions ---
+    let hasHttpsPerm = false;
+    let hasHttpPerm = false;
+    let permissionsCheckError = null;
     try {
-      const hasPermissions = await permissionHandler.checkPermissions(currentUrl);
-      if (!hasPermissions) {
-        //console.log('[showCookiesForTab] No permissions, showing permission prompt.');
-        showNoPermission();
+      if (domain) {
+        // Pass forceExecution flag to checkPermissions
+        hasHttpsPerm = await permissionHandler.checkPermissions(`https://${domain}`, forceExecution);
+        hasHttpPerm = await permissionHandler.checkPermissions(`http://${domain}`, forceExecution);
+      } else {
+        // If domain couldn't be determined, fallback to checking current URL if possible
+        if (currentUrl) {
+           // Pass forceExecution flag to checkPermissions
+           hasHttpsPerm = await permissionHandler.checkPermissions(currentUrl, forceExecution);
+           // Assume http perm is needed if https is granted but domain is unknown
+           hasHttpPerm = hasHttpsPerm; 
+        } else {
+           throw new Error("Cannot determine domain or URL for permission check.");
+        }
+      }
+    } catch (error) {
+      permissionsCheckError = error; // Store error
+      // fallback to old logic if error
+      try {
+        if (currentUrl) {
+          // Pass forceExecution flag to checkPermissions
+          const hasPermissions = await permissionHandler.checkPermissions(currentUrl, forceExecution);
+          if (!hasPermissions) {
+            // Pass domain if available, even in error fallback
+            showNoPermission({ domain: domain });
+            isAnimating = false;
+            return;
+          }
+          // If permission exists despite error, proceed cautiously
+          hasHttpsPerm = true;
+          hasHttpPerm = true;
+        } else {
+           throw new Error("Cannot determine URL for fallback permission check.")
+        }
+      } catch (error2) {
+        console.error('Fallback permission check failed:', error2);
+        // Pass domain if available, even in final error path
+        showNoPermission({ domain: domain });
         isAnimating = false;
         return;
       }
-    } catch (error) {
-      console.error('Error checking permissions:', error);
-      showNoPermission();
+    }
+
+    if (!hasHttpsPerm || !hasHttpPerm) {
+      showNoPermission({
+        requireHttp: domain && currentUrl?.startsWith('https') && !hasHttpPerm, // Only require http if on https and http perm is missing
+        domain: domain
+      });
       isAnimating = false;
       return;
     }
-    
+    // --- END: Check for both HTTPS and HTTP permissions ---
+
     const tab = cookieHandler.currentTab;
     
     // Update the current domain
@@ -2631,7 +2686,7 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
    * have permission to access the cookies for this page.
    * @return {Promise} Promise that resolves when the operation completes
    */
-  function showNoPermission() {
+  function showNoPermission(opts) {
     // ignore disableButtons to always show the permission prompt
     // if (disableButtons) {
     //   return Promise.resolve();
@@ -2683,7 +2738,7 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
           'right',
           () => {
             // Add event listeners after animation completes
-            setupPermissionButtons();
+            setupPermissionButtons(opts);
             resolve();
           },
           optionHandler.getAnimationsEnabled()
@@ -2691,45 +2746,87 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
       } else {
         // If no existing content, just add the message directly
         containerCookie.appendChild(html);
-        setupPermissionButtons();
+        setupPermissionButtons(opts);
         resolve();
       }
     });
     
     // Helper function to set up permission request buttons
-    function setupPermissionButtons() {
-      document.getElementById('request-permission').focus();
-      
+    function setupPermissionButtons(opts) {
+      const requestBtn = document.getElementById('request-permission');
+      const requestAllBtn = document.getElementById('request-permission-all');
+
+      if (!requestBtn || !requestAllBtn) return; // Elements might not exist
+
+      requestBtn.focus();
       // Add click handler for current site permission request
-      document
-        .getElementById('request-permission')
-        .addEventListener('click', async (event) => {
+      requestBtn.addEventListener('click', async (event) => {
+          // Prevent multiple clicks while processing
+          requestBtn.disabled = true;
+          requestAllBtn.disabled = true;
           hasRequestedPermission = true;
+          let targetDomain = opts?.domain;
+          let targetUrl = cookieHandler.currentTab?.url;
           
-          // Check if we can request permissions for this URL
-          if (!permissionHandler.canHavePermissions(cookieHandler.currentTab.url)) {
+          // Try to get domain if not passed in opts
+          if (!targetDomain && targetUrl) {
+              targetDomain = profileManager.getDomainFromUrl(targetUrl);
+          }
+          
+          // If we still don't have a domain, show an error
+          if (!targetDomain) {
+              console.error("Cannot request permission: Domain is unknown.");
+              showPermissionImpossible(); // Or show a specific error message
+              requestBtn.disabled = false; // Re-enable button
+              requestAllBtn.disabled = false;
+              return;
+          }
+          
+          // Check if we can request permissions for this (derived) URL
+          const checkUrl = targetUrl || `https://${targetDomain}`;
+          if (!permissionHandler.canHavePermissions(checkUrl)) {
             showPermissionImpossible();
+            requestBtn.disabled = false; // Re-enable button
+            requestAllBtn.disabled = false;
             return;
           }
           
           try {
-            const isPermissionGranted = await permissionHandler.requestPermission(
-              cookieHandler.currentTab.url,
-            );
-            
-            if (isPermissionGranted) {
-              showCookiesForTab();
+            // Always request both HTTP and HTTPS permissions for the domain
+            const urlToRequest = `https://${targetDomain}`;
+            const granted = await permissionHandler.requestPermission(urlToRequest);
+            if (granted) {
+              // Refresh domain list in the background
+              if (domainSelector) { // Check if dropdown exists
+                initDomainSelector(); 
+              }
+              // --- BEGIN IMMEDIATE UI UPDATE --- 
+              clearChildren(containerCookie);
+              // Optional: Add a temporary loading message
+              const loadingMsg = document.createElement('p');
+              loadingMsg.textContent = 'Loading cookies...';
+              loadingMsg.style.textAlign = 'center';
+              loadingMsg.style.marginTop = '2em';
+              containerCookie.appendChild(loadingMsg);
+              // --- END IMMEDIATE UI UPDATE --- 
+              showCookiesForTab(true); // Force execution to ensure refresh
+            } else {
+              showNoPermission(opts);
+              requestBtn.disabled = false; // Re-enable button on failure/denial
+              requestAllBtn.disabled = false;
             }
           } catch (error) {
             console.error('Permission request error:', error);
             showPermissionImpossible();
+            requestBtn.disabled = false; // Re-enable button on error
+            requestAllBtn.disabled = false;
           }
         });
-      
       // Add click handler for all sites permission request via background
-      document
-        .getElementById('request-permission-all')
-        .addEventListener('click', (event) => {
+      requestAllBtn.addEventListener('click', (event) => {
+          // Prevent multiple clicks while processing
+          requestBtn.disabled = true;
+          requestAllBtn.disabled = true;
           hasRequestedPermission = true;
           const api = browserDetector.getApi();
           if (api.runtime && api.runtime.sendMessage) {
@@ -2737,10 +2834,31 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
               { type: 'permissionsRequest', params: '<all_urls>' },
               (granted) => {
                 if (granted) {
-              showCookiesForTab();
-            }
+                  // Refresh domain list in the background
+                  if (domainSelector) { // Check if dropdown exists
+                    initDomainSelector(); 
+                  }
+                  // --- BEGIN IMMEDIATE UI UPDATE --- 
+                  clearChildren(containerCookie);
+                  // Optional: Add a temporary loading message
+                  const loadingMsg = document.createElement('p');
+                  loadingMsg.textContent = 'Loading cookies...';
+                  loadingMsg.style.textAlign = 'center';
+                  loadingMsg.style.marginTop = '2em';
+                  containerCookie.appendChild(loadingMsg);
+                  // --- END IMMEDIATE UI UPDATE --- 
+                  showCookiesForTab(true); // Force execution here too
+                } else {
+                   showNoPermission(opts); // Show prompt again if denied
+                   requestBtn.disabled = false; // Re-enable buttons
+                   requestAllBtn.disabled = false;
+                }
               }
             );
+          } else {
+            // Fallback if runtime messaging isn't available (shouldn't happen)
+            requestBtn.disabled = false;
+            requestAllBtn.disabled = false;
           }
         });
     }
@@ -3128,8 +3246,7 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
 
       // Remove leading dot from domain if present
       const cleanDomain = targetDomain && targetDomain.startsWith('.')
-        ? targetDomain.substring(1)
-        : targetDomain;
+        ? targetDomain.substring(1) : targetDomain;
 
       const cookiePath = targetPath || '/';
 
@@ -5980,22 +6097,6 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
       });
     }
     
-    // Import and export buttons in domain profiles submenu
-    const importDomainBtn = document.getElementById('import-domain-profiles');
-    if (importDomainBtn) {
-      // Remove existing listeners to prevent duplicates
-      const newImportDomainBtn = importDomainBtn.cloneNode(true);
-      if (importDomainBtn.parentNode) {
-        importDomainBtn.parentNode.replaceChild(newImportDomainBtn, importDomainBtn);
-      }
-      
-      newImportDomainBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        hideAllMenus();
-        importDomainProfiles();
-      });
-    }
-    
     const exportDomainBtn = document.getElementById('export-domain-profiles');
     if (exportDomainBtn) {
       // Remove existing listeners to prevent duplicates
@@ -6135,57 +6236,248 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
   async function importDomainProfiles() {
     // Exit if in side panel
     if (isSidePanel()) return;
-    // Create file input
+
+    // Get current domain context *before* file selection
+    // Assuming 'currentDomain' is accessible in this scope
+    const domainForImport = currentDomain;
+    if (!domainForImport) {
+        sendNotification("No active domain specified for import.", false);
+        return;
+    }
+
+    // Create file input - allow multiple files
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
-    fileInput.accept = '.json';
-    fileInput.multiple = true;
-    
+    fileInput.accept = '.json,application/json'; // Accept JSON files explicitly
+    fileInput.multiple = true; // Allow selecting multiple files
+
     fileInput.onchange = async function() {
-      if (!fileInput.files || fileInput.files.length === 0) return;
-      try {
+        if (!fileInput.files || fileInput.files.length === 0) {
+            sendNotification("Import canceled: No files selected.", false);
+            return;
+        }
+
         const files = Array.from(fileInput.files);
-        const allProfiles = await profileManager.getAllProfiles();
-        const existing = allProfiles[currentDomain] && Object.keys(allProfiles[currentDomain]).length > 0;
-        if (existing) {
-          const proceed = await showImportMergeDialog();
-          if (!proceed) {
-            sendNotification('Import cancelled.', false);
-              return;
-            }
-        }
-        let importedCount = 0;
+        let totalImportedCount = 0;
+        let totalOverwrittenCount = 0;
+        let totalSkippedCount = 0;
+        let totalFailedFiles = 0;
+
+        // Let user know we are starting
+        sendNotification(`Processing ${files.length} file(s)...`, false);
+
         for (const file of files) {
-          try {
-            const text = await file.text();
-            const importedData = JSON.parse(text);
-            const profiles = importedData[currentDomain];
-            if (profiles && typeof profiles === 'object') {
-              if (!allProfiles[currentDomain]) allProfiles[currentDomain] = {};
-              for (const name in profiles) {
-                allProfiles[currentDomain][name] = profiles[name];
-                importedCount++;
+            let fileImported = 0; // Count new profiles from this file
+            let fileOverwritten = 0; // Count overwritten profiles from this file
+            let fileSkipped = 0; // Count skipped profiles from this file
+
+            try {
+                const content = await file.text();
+                const data = JSON.parse(content);
+
+                // --- Check format: Standard Array or Profile Object ---
+                if (Array.isArray(data)) {
+                    // --- Handle Standard Cookie Array Export ---
+                    console.log(`File ${file.name}: Detected standard cookie array format.`);
+                    if (data.length === 0) {
+                        sendNotification(`Skipping ${file.name}: The JSON array is empty.`, true);
+                        fileSkipped++; // Count as skipped
+                    } else {
+                        // Basic check: does the first item look like a cookie?
+                        const firstItem = data[0];
+                        if (typeof firstItem !== 'object' || firstItem === null || !firstItem.name || !firstItem.value || !firstItem.domain) {
+                            sendNotification(`Skipping ${file.name}: Array does not appear to contain valid cookie objects.`, true);
+                            fileSkipped++; // Count as skipped
+                        } else {
+                            // Prompt for profile name FOR THIS FILE
+                            // Use a default suggestion based on filename minus extension
+                            const defaultNameSuggestion = file.name.replace(/\.[^/.]+$/, ""); // Simple extension removal
+                            const profileName = await promptProfileName(`Enter profile name for: ${file.name}`, defaultNameSuggestion);
+
+                            if (!profileName) {
+                                sendNotification(`Import skipped for ${file.name}: No profile name provided.`, false);
+                                fileSkipped++;
+                            } else {
+                                // Check conflict for this specific name
+                                const existingProfiles = await profileManager.getProfilesForDomain(domainForImport);
+                                let overwrite = false;
+                                if (existingProfiles && existingProfiles[profileName]) {
+                                    overwrite = await confirmAction(
+                                        `Profile "${profileName}" already exists for domain ${domainForImport} (from file ${file.name}). Overwrite?`,
+                                        'Import Conflict', 'Overwrite'
+                                    );
+                                    if (!overwrite) {
+                                        sendNotification(`Import skipped for ${file.name} to avoid overwrite.`, false);
+                                        fileSkipped++;
+                                    }
+                                }
+
+                                if (!existingProfiles[profileName] || overwrite) {
+                                    // Save the profile
+                                    await profileManager.saveProfile(domainForImport, profileName, data);
+                                    if (overwrite) {
+                                        fileOverwritten++;
+                                        sendNotification(`File ${file.name}: Overwrote profile "${profileName}" with ${data.length} cookies.`, false);
+                                    } else {
+                                        fileImported++;
+                                        sendNotification(`File ${file.name}: Imported ${data.length} cookies as new profile "${profileName}".`, false);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                } else if (typeof data === 'object' && data !== null) {
+                    // --- Handle Existing Profile Object Format ---
+                    console.log(`File ${file.name}: Detected profile object format.`);
+                    // Basic validation of the imported data structure
+                    // Allow flexibility: check only for 'profiles' object
+                    if (!data.profiles || typeof data.profiles !== 'object') {
+                         // Try to find profiles under a domain key if 'profiles' key is missing
+                         let potentialDomainKey = Object.keys(data).find(key => typeof data[key] === 'object' && data[key] !== null && Object.keys(data[key]).length > 0);
+                         if (potentialDomainKey && typeof data[potentialDomainKey] === 'object') {
+                             console.log(`Found profiles under domain key '${potentialDomainKey}' in ${file.name}. Treating as profile format.`);
+                             // Re-assign data structure to match expected format for simplicity downstream
+                             data.profiles = data[potentialDomainKey];
+                             data.domain = potentialDomainKey; // Assume the key is the intended domain
+                             data.type = 'CookieEditorDomainProfiles'; // Assume type
+                         } else {
+                            sendNotification(`Skipping ${file.name}: Invalid profile file format. Expected a 'profiles' object or a structure like { "domain.com": { "profileName": [...] } }.`, true);
+                            fileSkipped++; // Count whole file as skipped
+                            continue; // Go to next file
+                         }
+                    }
+
+                    // Determine the domain to save under
+                    let effectiveDomain = domainForImport;
+                    const importDomain = data.domain; // Domain specified in the file, if any
+
+                    if (importDomain && importDomain !== domainForImport) {
+                        const proceed = await confirmAction(
+                            `File ${file.name} contains profiles for domain "${importDomain}". Import these profiles for the current domain "${domainForImport}" anyway?`,
+                            'Domain Mismatch', 'Import Anyway'
+                        );
+                        if (!proceed) {
+                            sendNotification(`Import skipped for file ${file.name} due to domain mismatch.`, false);
+                            fileSkipped += Object.keys(data.profiles).length; // Skip all profiles in this file
+                            continue; // Go to next file
+                        }
+                        sendNotification(`Importing profiles from "${importDomain}" into "${domainForImport}" for file ${file.name}.`, false);
+                    }
+
+                    const profilesToImport = data.profiles;
+                    const profileNames = Object.keys(profilesToImport);
+
+                    if (profileNames.length === 0) {
+                        sendNotification(`No profiles found in file ${file.name}.`, false);
+                        continue; // Go to next file
+                    }
+
+                    // Check all conflicts within this file first
+                    const existingProfiles = await profileManager.getProfilesForDomain(effectiveDomain);
+                    const conflicts = profileNames.filter(name => existingProfiles && existingProfiles[name]);
+                    let overwriteConfirmed = false; // Default to false
+
+                    if (conflicts.length > 0) {
+                        const conflictMessage = conflicts.length === 1
+                            ? `Profile "${conflicts[0]}" already exists.`
+                            : `Profiles "${conflicts.join('", "')}" already exist.`;
+                        overwriteConfirmed = await confirmAction(
+                            `File ${file.name}: ${conflictMessage} Overwrite existing profile(s)?`,
+                            'Import Conflict', 'Overwrite'
+                        );
+                        if (!overwriteConfirmed) {
+                            sendNotification(`Skipping ${conflicts.length} conflicting profile(s) in ${file.name}.`, false);
+                        }
+                    }
+
+                    // Perform the import for profiles within this file
+                    for (const profileName of profileNames) {
+                        const profileDataOrArray = profilesToImport[profileName];
+
+                        // Validate profile structure: should be array or object with .cookies array
+                        let cookiesToSave = null;
+                        if (Array.isArray(profileDataOrArray)) {
+                            cookiesToSave = profileDataOrArray; // Allow direct array format
+                        } else if (profileDataOrArray && Array.isArray(profileDataOrArray.cookies)) {
+                            cookiesToSave = profileDataOrArray.cookies; // Extract from { cookies: [...] }
+                        }
+
+                        if (!cookiesToSave || !Array.isArray(cookiesToSave)) {
+                            console.warn(`Skipping invalid profile structure for '${profileName}' in file ${file.name}. Expected array or {cookies: [...]}.`);
+                            fileSkipped++;
+                            continue; // Skip this profile
+                        }
+
+                        const isConflict = conflicts.includes(profileName);
+
+                        if (!isConflict || overwriteConfirmed) {
+                            // Save the profile (using the extracted cookies array)
+                            await profileManager.saveProfile(effectiveDomain, profileName, cookiesToSave);
+                            if (isConflict) {
+                                fileOverwritten++;
+                            } else {
+                                fileImported++;
+                            }
+                        } else {
+                            // Was a conflict, but user chose not to overwrite
+                            fileSkipped++;
+                        }
+                    }
+                     let fileSummary = `File ${file.name}: ${fileImported} new, ${fileOverwritten} overwritten, ${fileSkipped} skipped.`;
+                     sendNotification(fileSummary, false);
+
+                } else {
+                    // --- Handle Invalid Format ---
+                    sendNotification(`Skipping ${file.name}: Invalid file content (not a JSON array or recognized profile object).`, true);
+                    totalFailedFiles++; // Use a specific counter for files that couldn't be parsed/understood at all
                 }
-              } else {
-              sendNotification(`No profiles for ${currentDomain} in file ${file.name}.`, true);
+
+            } catch (error) {
+                console.error(`Error processing file ${file.name}:`, error);
+                sendNotification(`Import failed for ${file.name}: ${error.message}`, true);
+                totalFailedFiles++;
+            } finally {
+                 // Accumulate counts for the final summary
+                 totalImportedCount += fileImported;
+                 totalOverwrittenCount += fileOverwritten;
+                 // Adjust skip count based on file-level skips vs profile-level skips
+                 // If a file failed parsing, it contributes 1 to totalFailedFiles, not skips.
+                 // If a file was skipped due to no name or domain mismatch, it contributes its potential profiles to totalSkippedCount.
+                 // For simplicity now, accumulate fileSkipped from loops.
+                 totalSkippedCount += fileSkipped;
             }
-          } catch (err) {
-            console.error(`Error importing file ${file.name}:`, err);
-            sendNotification(`Failed to import ${file.name}: ${err.message}`, true);
-          }
+        } // End loop files
+
+        // --- Final Summary ---
+        let summaryParts = [`Import finished. ${files.length} file(s) processed.`];
+        if (totalImportedCount > 0) summaryParts.push(`${totalImportedCount} new profile(s) added.`);
+        if (totalOverwrittenCount > 0) summaryParts.push(`${totalOverwrittenCount} profile(s) overwritten.`);
+        if (totalSkippedCount > 0) summaryParts.push(`${totalSkippedCount} profile(s) skipped.`);
+        if (totalFailedFiles > 0) summaryParts.push(`${totalFailedFiles} file(s) failed processing.`);
+
+        sendNotification(summaryParts.join(' '), totalFailedFiles > 0);
+
+        // Refresh the profile selector UI to reflect changes
+        if (totalImportedCount > 0 || totalOverwrittenCount > 0) {
+             await updateProfileSelector(domainForImport);
         }
-            await storageHandler.setLocal(profileManager.profileStorageKey, allProfiles);
-            profileManager._invalidateCache();
-        await updateProfileSelector(currentDomain);
-        sendNotification(`${importedCount} profiles imported successfully for ${currentDomain}.`, false);
-          } catch (error) {
-        console.error('Domain import error:', error);
-            sendNotification('Failed to import domain profiles: ' + error.message, true);
-      }
-    };
-    
+
+        // Clean up the dynamically created file input element
+        if (fileInput.parentNode) {
+            fileInput.remove();
+        }
+    }; // End onchange
+
+    // Temporarily add to body to trigger click, then remove (removal happens in onchange now)
+    fileInput.style.display = 'none';
+    document.body.appendChild(fileInput);
     fileInput.click();
-  }
+
+     // Hide the domain actions menu after initiating the process
+     if (domainProfileMenu) domainProfileMenu.classList.remove('visible');
+     document.removeEventListener('click', closeDomainActionsMenuOnClickOutside);
+}
 
   // Cookie sharing functions
   /**
@@ -6213,9 +6505,9 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
     
     if (!domain) {
       sendNotification('Cannot share cookies: Invalid domain', true);
-      return;
-    }
-    
+            return;
+        }
+
     // Get cookies for the domain or current tab
     const getCookiesPromise = selectedDomain 
       ? new Promise(resolve => {
@@ -6378,7 +6670,7 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
             console.error('Error creating encrypted URL:', error);
             urlField.value = "Error creating encrypted URL";
           }
-        } else {
+                    } else {
           // Standard non-encrypted URL
           const shareUrl = await createShareableUrl(cookies, domain, expires);
           urlField.value = shareUrl;
@@ -6391,7 +6683,7 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
       if (passwordField.type === 'password') {
         passwordField.type = 'text';
         showPasswordBtn.querySelector('use').setAttribute('href', '../sprites/solid.svg#eye-slash');
-      } else {
+                        } else {
         passwordField.type = 'password';
         showPasswordBtn.querySelector('use').setAttribute('href', '../sprites/solid.svg#eye');
       }
@@ -6429,7 +6721,7 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
       if (this.checked) {
         passwordContainer.style.display = 'block';
         passwordField.focus();
-      } else {
+                            } else {
         passwordContainer.style.display = 'none';
       }
       
@@ -6591,7 +6883,7 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
                 
                 // Prompt user to confirm import
                 showImportProfilesDialog(decryptedData);
-              } else {
+                                    } else {
                 // Handle cookies
                 const cookies = decryptedData.c;
                 const domain = decryptedData.d;
@@ -6728,7 +7020,7 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
           
           // Prompt user to confirm import
           showImportProfilesDialog(decryptedData);
-        } else {
+                    } else {
           // Handle cookies (existing functionality)
           const cookies = decryptedData.c;
           const domain = decryptedData.d;
@@ -6760,7 +7052,7 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
         
         // Prompt user to confirm import
         showImportProfilesDialog(pendingData);
-      } else {
+                        } else {
         // Handle non-encrypted cookies (existing functionality)
         const cookies = pendingData.c;
         const domain = pendingData.d;
@@ -6996,7 +7288,7 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
       if (dataType === 'profiles') {
         titleElement.textContent = 'Enter Password';
         descriptionElement.textContent = 'This URL contains password-encrypted profiles. Please enter the password to decrypt and import them.';
-      } else {
+                            } else {
         titleElement.textContent = 'Enter Password';
         descriptionElement.textContent = 'This URL contains password-encrypted cookies. Please enter the password to decrypt and import them.';
       }
@@ -7016,7 +7308,7 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
         if (passwordField.type === 'password') {
           passwordField.type = 'text';
           showPasswordBtn.querySelector('use').setAttribute('href', '../sprites/solid.svg#eye-slash');
-        } else {
+                        } else {
           passwordField.type = 'password';
           showPasswordBtn.querySelector('use').setAttribute('href', '../sprites/solid.svg#eye');
         }
@@ -7114,7 +7406,7 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
                 throw new Error('Failed to decrypt data');
               }
             }
-          } else {
+                } else {
             // Default is cookie decryption first
             try {
               decryptedData = await decryptCookies(encryptedParams, password);
@@ -7154,7 +7446,7 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
           
           // If we get here, both attempts failed
           throw new Error('Failed to decrypt data with the provided password');
-        } catch (error) {
+            } catch (error) {
           console.error('Decryption error:', error);
           errorMessage.textContent = 'Invalid password or corrupted data';
           errorMessage.style.display = 'block';
@@ -7802,7 +8094,7 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
     } catch (error) {
       console.error('Error during manual refresh:', error);
       sendNotification('Failed to refresh cookies', true);
-    } finally {
+            } finally {
       disableButtons = false;
     }
   });
@@ -7927,36 +8219,4 @@ import { extractSharedCookiesFromUrl, formatExpiration } from '../lib/sharing/co
   
   // Export functions when document is loaded
   document.addEventListener('DOMContentLoaded', exportFunctionsForSelectionModule);
-  
-  function findCookieObject(cookieElement) {
-    const cookieId = cookieElement.dataset.id;
-    const cookieName = cookieElement.dataset.name;
-    
-    // Find the cookie in loadedCookies
-    if (loadedCookies) {
-      // Handle if loadedCookies is an object (the expected case)
-      if (typeof loadedCookies === 'object' && !Array.isArray(loadedCookies)) {
-        if (cookieId && loadedCookies[cookieId]) {
-          return loadedCookies[cookieId].cookie;
-        }
-        
-        // If not found by ID, try to find by name
-        for (const id in loadedCookies) {
-          if (loadedCookies[id].cookie && loadedCookies[id].cookie.name === cookieName) {
-            return loadedCookies[id].cookie;
-          }
-        }
-      } 
-      // Handle if loadedCookies is somehow an array (fallback)
-      else if (Array.isArray(loadedCookies)) {
-        for (const cookie of loadedCookies) {
-          if (cookie.name === cookieName && String(cookie.id) === cookieId) {
-            return cookie;
-          }
-        }
-      }
-    }
-    
-    return null;
-  }
 })();

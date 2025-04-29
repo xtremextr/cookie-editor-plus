@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="en" class="no-js">
+<head>
+  <!-- Critical: Apply theme immediately -->
+  <script src="../lib/themeLoader.js"></script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  
+  <!-- Performance optimizations -->
+  <meta http-equiv="x-dns-prefetch-control" content="on">
+  <meta name="color-scheme" content="light dark">
+  <link rel="modulepreload" href="../lib/browserDetector.js">
+  <link rel="modulepreload" href="../lib/eventEmitter.js">
+  <link rel="modulepreload" href="../lib/optionsHandler.js">
+  <link rel="modulepreload" href="../lib/themeHandler.js">
+  <link rel="modulepreload" href="../lib/genericStorageHandler.js">
+  <link rel="modulepreload" href="../lib/manager/cookieManager.js">
+  <link rel="modulepreload" href="cookieManagerUI.js">
+  
+  <!-- Resource hints for critical resources -->
+  <link rel="preload" href="../theme/switch.css" as="style" />
+  <link rel="preload" href="style-v2.css" as="style" />
+  <link rel="preload" href="style-fix.css" as="style" />
+  <link rel="preload" href="cookie-manager-style.css" as="style" />
+  <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  
+  <!-- Critical CSS for the initial render -->
+  <style>
+    /* Initial critical styles */
+    .app-container {
+      opacity: 0;
+      animation: fadeIn 0.3s ease-in forwards;
+      animation-delay: 0.1s;
+    }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    
+    .loading-indicator {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+      color: var(--primary-text-color);
+      z-index: 9999;
+    }
+    
+    .loading-indicator svg {
+      width: 60px;
+      height: 60px;
+      filter: drop-shadow(0 0 8px rgba(var(--accent-color-rgb, 0, 0, 0), 0.3));
+    }
+    
+    @keyframes pulse {
+      0% { transform: scale(0.95); opacity: 0.7; }
+      50% { transform: scale(1.05); opacity: 1; }
+      100% { transform: scale(0.95); opacity: 0.7; }
+    }
+    
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    
+    .loading-indicator-spinner {
+      animation: spin 1.4s linear infinite;
+      transform-origin: center;
+    }
+    
+    /* Hide elements initially */
+    .hidden-element {
+      display: none;
+    }
+    
+    /* Dialog styles */
+    .dialog {
+      display: none;
+    }
+    
+    .confirmation-dialog {
+      display: none;
+    }
+    
+    .error-message {
+      display: none;
+    }
+
+    /* Ensure app-container stays hidden during load */
+    body.loading .app-container {
+      opacity: 0 !important;
+      animation: none !important; /* Prevent animation while loading */
+    }
+
+    /* Hide loader when body is not loading */
+    body:not(.loading) .loading-indicator {
+      display: none;
+    }
+    
+    :root {
+      --accent-color-rgb: 79, 70, 229;
+    }
+  </style>
+  
+  <!-- JS detection -->
+  <script src="js-detection.js"></script>
+  
+  <!-- Stylesheets -->
+  <link rel="stylesheet" href="../theme/switch.css" />
+  <link rel="stylesheet" href="style-v2.css" />
+  <link rel="stylesheet" href="style-fix.css" />
+  <link rel="stylesheet" href="cookie-manager-style.css" />
+  
+  <!-- Non-critical JavaScript -->
+  <script src="options-v2.js" type="module" defer></script>
+  <script src="cookie-manager-init.js" type="module" defer></script>
+  
+  <!-- Fonts loaded with lowest priority -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" media="print" />
+  <script src="font-loader.js" defer></script>
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"></noscript>
+  
+  <title>Cookie-Editor Plus Options</title>
+</head>
+<body class="loading">
+  <!-- Loading indicator shown before content loads -->
+  <div class="loading-indicator" id="loading-indicator">
+    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" class="loading-indicator-spinner">
+      <defs>
+        <linearGradient id="spinner-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stop-color="var(--accent-color, #4f46e5)" stop-opacity="1" />
+          <stop offset="100%" stop-color="var(--accent-color, #4f46e5)" stop-opacity="0.2" />
+        </linearGradient>
+      </defs>
+      <circle cx="12" cy="12" r="10" stroke="url(#spinner-gradient)" fill="none" stroke-width="3" stroke-dasharray="42" stroke-linecap="round" />
+    </svg>
+    <p>Loading Cookie-Editor Options...</p>
+  </div>
+
+  <div class="app-container">
+    <header class="app-header">
+      <div class="logo-container">
+        <img src="../../icons/cookie-filled.svg" alt="Cookie Editor Logo" class="logo">
+        <div class="title-container">
+          <h1>Cookie-Editor Plus</h1>
+          <span class="version" id="version-display">Loading version...</span>
+        </div>
+      </div>
+      <div class="header-actions">
+        <a href="options.html" class="btn btn-secondary btn-sm ripple-effect" title="Return to original options page">
+          <svg class="icon">
+            <use href="../sprites/solid.svg#arrow-left"></use>
+          </svg>
+          <span>Original Options</span>
+        </a>
+        <div class="theme-toggle" title="Toggle theme">
+          <button id="theme-toggle-btn" class="ripple-effect">
+            <svg class="icon sun-icon">
+              <use href="../sprites/solid.svg#sun"></use>
+            </svg>
+            <svg class="icon moon-icon">
+              <use href="../sprites/solid.svg#moon"></use>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Notification area -->
+    <div id="notification" class="notification hidden">
+      <div class="notification-content"></div>
+      <button class="notification-close" aria-label="Close notification" title="Dismiss"></button>
+    </div>
+
+    <div class="content-wrapper">
+      <div class="sidebar">
+        <nav>
+          <ul>
+            <li><a href="#general" class="active nav-link"><svg class="icon"><use href="../sprites/solid.svg#cog"></use></svg> <span>General</span></a></li>
+            <li><a href="#manager" class="nav-link"><svg class="icon"><use href="../sprites/solid.svg#database"></use></svg> <span>Manager</span></a></li>
+            <li><a href="#appearance" class="nav-link"><svg class="icon"><use href="../sprites/solid.svg#palette"></use></svg> <span>Appearance</span></a></li>
+            <li><a href="#confirmations" class="nav-link"><svg class="icon"><use href="../sprites/solid.svg#bell"></use></svg> <span>Confirmations</span></a></li>
+            <li><a href="#all-cookies" class="nav-link"><svg class="icon"><use href="../sprites/solid.svg#cookie-bite"></use></svg> <span>All Cookies</span></a></li>
+            <li><a href="#permissions" class="nav-link"><svg class="icon"><use href="../sprites/solid.svg#lock"></use></svg> <span>Permissions</span></a></li>
+            <li><a href="#about" class="nav-link"><svg class="icon"><use href="../sprites/solid.svg#info-circle"></use></svg> <span>About</span></a></li>
+          </ul>
+        </nav>
+        
+        <div class="sidebar-footer">
+          <div class="sidebar-version">
+            <svg class="icon"><use href="../sprites/solid.svg#code"></use></svg>
+            <span id="sidebar-version-display">v2.9.5</span>
+          </div>
+        </div>
+      </div>
+
+      <main class="main-content">
+        <section id="general" class="section active">
+          <h2><svg class="icon"><use href="../sprites/solid.svg#cog"></use></svg> General Options</h2>
+          
+          <div class="card glass-card">
+            <div class="settings-group">
+              <div class="input-container">
+                <div class="input-label">
+                  <label for="advanced-cookie">Show Advanced Cookie Options</label>
+                  <div class="hint" id="advanced-cookie-hint">
+                    When Enabled, all the values of a cookie are visible in the interface.
+                    When Disabled, only the name and the value of the cookie are visible.
+                  </div>
+                </div>
+                <label class="switch fancy-switch">
+                  <input type="checkbox" id="advanced-cookie" aria-describedby="advanced-cookie-hint" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+
+              <div class="input-container">
+                <div class="input-label">
+                  <label for="devtool-show">Enable Devtool panel</label>
+                  <div class="hint" id="devtool-show-hint">
+                    When Enabled, Cookie-Editor will be added to the DevTools tabs.
+                    Devtools needs to be restarted to take effect when turning this option off.
+                  </div>
+                </div>
+                <label class="switch fancy-switch">
+                  <input type="checkbox" id="devtool-show" aria-describedby="devtool-show-hint" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+
+              <div class="input-container">
+                <div class="input-label">
+                  <label for="animations-enabled">Enable Animations</label>
+                  <div class="hint" id="animations-enabled-hint">
+                    When Enabled, Cookie-Editor will show transitions and other various
+                    animations in the interface. This is for appearance only.
+                  </div>
+                </div>
+                <label class="switch fancy-switch">
+                  <input type="checkbox" id="animations-enabled" aria-describedby="animations-enabled-hint" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+
+              <div class="input-container">
+                <div class="input-label">
+                  <label for="export-format">Export Format</label>
+                  <div class="hint" id="export-format-hint">
+                    Selects the behavior of the export button. When "Ask every time" is
+                    selected, a menu asking you to chose the format will show up when
+                    you press the export button.
+                  </div>
+                </div>
+                <div class="select-wrapper">
+                  <select id="export-format" aria-describedby="export-format-hint">
+                    <option value="json">JSON</option>
+                    <option value="headerstring">Header String</option>
+                    <option value="netscape">Netscape</option>
+                    <option value="ask">Ask every time</option>
+                  </select>
+                  <svg class="icon select-arrow">
+                    <use href="../sprites/solid.svg#angle-down"></use>
+                  </svg>
+                </div>
+              </div>
+
+              <div class="input-container">
+                <div class="input-label">
+                  <label for="ads-enabled">Show Ads</label>
+                  <div class="hint" id="ads-enabled-hint">
+                    When Enabled, Cookie-Editor will display some small non-intrusive ads at the
+                    top of the main interface. These are used to cover the basic operating
+                    costs of Cookie-Editor. Feel free to disable them, but keep in mind
+                    that they help keep Cookie-Editor free and running smoothly!
+                  </div>
+                </div>
+                <label class="switch fancy-switch">
+                  <input type="checkbox" id="ads-enabled" aria-describedby="ads-enabled-hint" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="manager" class="section">
+          <div class="cookie-manager-container" id="cookie-manager-container">
+            <!-- Cookie Manager UI will be inserted here by JavaScript -->
+          </div>
+        </section>
+
+        <section id="appearance" class="section">
+          <h2><svg class="icon"><use href="../sprites/solid.svg#palette"></use></svg> Appearance</h2>
+          
+          <div class="card">
+            <div class="settings-group">
+              <div class="input-container">
+                <div class="input-label">
+                  <label for="theme">Theme</label>
+                  <div class="hint" id="theme-hint">
+                    When selecting "Auto", Cookie-Editor will match your browser's theme
+                    automatically.
+                  </div>
+                </div>
+                <div class="select-wrapper">
+                  <select id="theme" aria-describedby="theme-hint">
+                    <option value="auto">Auto</option>
+                    <option value="light">Light</option>
+                    <option value="dark">Dark</option>
+                  </select>
+                  <svg class="icon select-arrow">
+                    <use href="../sprites/solid.svg#angle-down"></use>
+                  </svg>
+                </div>
+              </div>
+
+              <div class="input-container">
+                <div class="input-label">
+                  <label for="action-button-position">Cookie action buttons</label>
+                  <div class="hint" id="action-button-position-hint">
+                    Choose where to place the delete/save buttons in the expanded cookie view.
+                  </div>
+                </div>
+                <div class="select-wrapper">
+                  <select id="action-button-position" aria-describedby="action-button-position-hint">
+                    <option value="left">Left of form</option>
+                    <option value="below">Below form</option>
+                  </select>
+                  <svg class="icon select-arrow">
+                    <use href="../sprites/solid.svg#angle-down"></use>
+                  </svg>
+                </div>
+              </div>
+
+              <div class="input-container">
+                <div class="input-label">
+                  <label for="button-bar-position">Place Button Bar</label>
+                  <div class="hint" id="button-bar-position-hint">
+                    Choose whether to place the main button bar at the top or bottom of the
+                    interface.
+                  </div>
+                </div>
+                <div class="select-wrapper">
+                  <select id="button-bar-position" aria-describedby="button-bar-position-hint">
+                    <option value="bottom">Bottom</option>
+                    <option value="top">Top</option>
+                  </select>
+                  <svg class="icon select-arrow">
+                    <use href="../sprites/solid.svg#angle-down"></use>
+                  </svg>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="confirmations" class="section">
+          <h2><svg class="icon"><use href="../sprites/solid.svg#bell"></use></svg> Confirmation Dialogs</h2>
+          
+          <div class="card">
+            <div class="settings-group">
+              <div class="input-container">
+                <div class="input-label">
+                  <label>Reset Confirmation Dialogs</label>
+                  <div class="hint">
+                    This will reset all "Don't show again" confirmations. Delete, Delete All, Batch Delete, and Profile Loading confirmations will be shown again.
+                  </div>
+                </div>
+                <button id="reset-confirmations" class="btn btn-primary">
+                  <svg class="icon"><use href="../sprites/solid.svg#rotate"></use></svg>
+                  Reset Confirmations
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="all-cookies" class="section">
+          <h2><svg class="icon"><use href="../sprites/solid.svg#cookie-bite"></use></svg> All Cookies</h2>
+          
+          <div class="card">
+            <div class="settings-group">
+              <div class="notice danger warning-box">
+                <svg class="icon">
+                  <use href="../sprites/solid.svg#exclamation-triangle"></use>
+                </svg>
+                <div>
+                  <strong>WARNING: These operations affect ALL websites</strong>
+                  <p>Actions in this section will modify cookies across your entire browser.</p>
+                  <p>Never share exported cookies with anyone you don't fully trust. Sharing cookies gives complete access to your logged-in accounts.</p>
+                </div>
+              </div>
+              
+              <div class="input-container">
+                <div class="input-label">
+                  <label>Import Cookies</label>
+                  <div class="hint">
+                    Import cookies from a JSON file. The format should match that produced by the export function.
+                  </div>
+                </div>
+                <div class="button-group">
+                  <button id="import-cookies" class="btn btn-primary">
+                    <svg class="icon"><use href="../sprites/solid.svg#file-import"></use></svg>
+                    Import JSON
+                  </button>
+                  <input type="file" id="cookie-file-input" accept=".json" class="hidden-element" />
+                </div>
+              </div>
+              
+              <div class="input-container">
+                <div class="input-label">
+                  <label>Export All Cookies</label>
+                  <div class="hint">
+                    Header string is not available for browser-wide export since it does
+                    not contain information about which site it comes from.
+                  </div>
+                </div>
+                <div class="button-group">
+                  <button id="export-all-json" class="btn btn-primary">
+                    <svg class="icon"><use href="../sprites/solid.svg#file-export"></use></svg>
+                    As JSON
+                  </button>
+                  <button id="export-all-netscape" class="btn btn-primary">
+                    <svg class="icon"><use href="../sprites/solid.svg#file-export"></use></svg>
+                    As Netscape
+                  </button>
+                </div>
+              </div>
+              
+              <div class="input-container">
+                <div class="input-label">
+                  <label>Delete All Cookies</label>
+                  <div class="hint danger">
+                    This will delete all the cookies on all the site on this browser.
+                    This action is irreversible. Be very careful.
+                  </div>
+                </div>
+                <button class="btn btn-danger" id="delete-all">
+                  <svg class="icon"><use href="../sprites/solid.svg#trash"></use></svg>
+                  Delete All
+                </button>
+              </div>
+              
+              <!-- Cookie List Container -->
+              <div class="cookie-list-container" id="all-cookies-list-container">
+                <!-- This container will hold the list of all cookies -->
+                <div class="cookie-table-wrapper">
+                  <div class="cookie-search-controls">
+                    <div class="input-with-icon search-input">
+                      <input type="text" id="all-cookies-search" placeholder="Search all cookies by name, domain, or value..." />
+                      <svg class="icon input-icon"><use href="../sprites/solid.svg#search"></use></svg>
+                    </div>
+                  </div>
+                  
+                  <div class="table-container">
+                    <div class="table-scroll-container">
+                      <table class="cookie-table" id="all-cookies-table">
+                        <thead>
+                          <tr>
+                            <th>
+                              <label class="custom-checkbox">
+                                <input type="checkbox" id="select-all-cookies" />
+                                <span class="checkbox-checkmark"></span>
+                              </label>
+                            </th>
+                            <th>Name</th>
+                            <th>Domain</th>
+                            <th>Value</th>
+                            <th>Expires</th>
+                            <th>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody id="all-cookies-table-body">
+                          <!-- Cookies will be loaded here -->
+                        </tbody>
+                      </table>
+                    </div>
+                    
+                    <div id="all-cookies-loader" class="cookie-loader cookie-state">
+                      <svg class="spinner" viewBox="0 0 50 50">
+                        <circle class="path" cx="25" cy="25" r="20" fill="none" stroke-width="5"></circle>
+                      </svg>
+                      <p>Loading cookies...</p>
+                    </div>
+                    
+                    <div id="all-cookies-empty-message" class="no-cookies-message cookie-state hidden">
+                      <svg class="icon"><use href="../sprites/solid.svg#cookie-bite"></use></svg>
+                      <p>No cookies found matching your filters</p>
+                      <button id="all-cookies-clear-filters" class="btn btn-primary">Clear Filters</button>
+                    </div>
+                  </div>
+                  
+                  <!-- Pagination for all cookies -->
+                  <div class="cookie-pagination">
+                    <div class="pagination-info">
+                      Showing <span id="all-cookies-showing">0-0</span> of <span id="all-cookies-total">0</span> cookies
+                    </div>
+                    <div class="pagination-controls">
+                      <div class="pagination-buttons">
+                        <button id="all-cookies-first-page" class="page-button" disabled>
+                          <svg class="icon"><use href="../sprites/solid.svg#angle-double-left"></use></svg>
+                        </button>
+                        <button id="all-cookies-prev-page" class="page-button" disabled>
+                          <svg class="icon"><use href="../sprites/solid.svg#angle-left"></use></svg>
+                        </button>
+                        <div id="all-cookies-page-numbers">
+                          <!-- Page numbers will be dynamically generated -->
+                        </div>
+                        <button id="all-cookies-next-page" class="page-button" disabled>
+                          <svg class="icon"><use href="../sprites/solid.svg#angle-right"></use></svg>
+                        </button>
+                        <button id="all-cookies-last-page" class="page-button" disabled>
+                          <svg class="icon"><use href="../sprites/solid.svg#angle-double-right"></use></svg>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="permissions" class="section">
+          <h2><svg class="icon"><use href="../sprites/solid.svg#lock"></use></svg> Site Permissions</h2>
+          
+          <div class="card">
+            <div class="settings-group">
+              <div class="notice">
+                <svg class="icon">
+                  <use href="../sprites/solid.svg#info-circle"></use>
+                </svg>
+                <div>
+                  <strong>Manage site access</strong>
+                  <p>These controls let you manage which sites Cookie-Editor can access cookies for. You can grant access to all sites or specific domains.</p>
+                </div>
+              </div>
+              
+              <div class="input-container permission-buttons">
+                <div class="input-label">
+                  <label>All Sites Permission</label>
+                  <div class="hint">
+                    Grant or revoke Cookie-Editor's permission to access cookies on all websites.
+                  </div>
+                </div>
+                <div class="button-group">
+                  <button id="allow-all-permissions" class="btn btn-primary">
+                    <svg class="icon"><use href="../sprites/solid.svg#check-circle"></use></svg>
+                    Allow All Sites
+                  </button>
+                  <button id="revoke-all-permissions" class="btn btn-secondary">
+                    <svg class="icon"><use href="../sprites/solid.svg#ban"></use></svg>
+                    Revoke All
+                  </button>
+                </div>
+              </div>
+              
+              <div class="input-container domain-input">
+                <div class="input-label">
+                  <label for="allow-domain-input">Allow Specific Domain</label>
+                  <div class="hint">
+                    Grant permission for a specific domain. This will allow both HTTP and HTTPS cookies to be managed for that domain.
+                  </div>
+                </div>
+                <div class="domain-input-group">
+                  <div class="input-with-icon">
+                    <svg class="icon input-icon"><use href="../sprites/solid.svg#globe"></use></svg>
+                    <input type="text" id="allow-domain-input" placeholder="example.com" />
+                  </div>
+                  <button id="allow-domain-btn" class="btn btn-primary">
+                    <svg class="icon"><use href="../sprites/solid.svg#check"></use></svg>
+                    Allow Domain
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="about" class="section">
+          <h2><svg class="icon"><use href="../sprites/solid.svg#info-circle"></use></svg> About Cookie-Editor Plus</h2>
+          
+          <div class="card">
+            <div class="about-content">
+              <div class="about-logo">
+                <img src="../../icons/cookie-128-filled.png" alt="Cookie Editor Logo" width="128" height="128">
+              </div>
+              
+              <p>
+                Cookie-Editor was originally made by Christophe Gagnier and is fully open source.
+              </p>
+              
+              <p>
+                Original
+                <a href="#" data-href="https://github.com/Moustachauve/cookie-editor" class="external-link">Source code</a>. Read the
+                <a href="#" data-href="https://cookie-editor.com/privacy.html" class="external-link">Privacy Policy</a>. <br />
+                Cookie-Editor is published under
+                <a href="#" data-href="https://github.com/Moustachauve/cookie-editor/blob/master/LICENSE" class="external-link">the GPL-3.0
+                  license</a>.
+              </p>
+              
+              <div class="feature-list">
+                <h3>Cookie-Editor Plus Features</h3>
+                <p>This enhanced version includes additional features:</p>
+                
+                <div class="features">
+                  <div class="feature-item">
+                    <svg class="icon feature-icon">
+                      <use href="../sprites/solid.svg#globe"></use>
+                    </svg>
+                    <div>
+                      <strong>Multi-domain management</strong>
+                      <span>Edit cookies beyond the current tab</span>
+                    </div>
+                  </div>
+                  
+                  <div class="feature-item">
+                    <svg class="icon feature-icon">
+                      <use href="../sprites/solid.svg#user-friends"></use>
+                    </svg>
+                    <div>
+                      <strong>Advanced profile system</strong>
+                      <span>One-click import/export functionality</span>
+                    </div>
+                  </div>
+                  
+                  <div class="feature-item">
+                    <svg class="icon feature-icon">
+                      <use href="../sprites/solid.svg#share-alt"></use>
+                    </svg>
+                    <div>
+                      <strong>Easy URL sharing</strong>
+                      <span>Zero-Knowledge military-grade encryption (AES-256-GCM)</span>
+                    </div>
+                  </div>
+                  
+                  <div class="feature-item">
+                    <svg class="icon feature-icon">
+                      <use href="../sprites/solid.svg#undo-alt"></use>
+                    </svg>
+                    <div>
+                      <strong>Undo/Redo function</strong>
+                      <span>Undo cookie adds/edits/removals or profile loading</span>
+                    </div>
+                  </div>
+                  
+                  <div class="feature-item">
+                    <svg class="icon feature-icon">
+                      <use href="../sprites/solid.svg#expand"></use>
+                    </svg>
+                    <div>
+                      <strong>Resizable Popup</strong>
+                      <span>Adjust the popup window size to your preference</span>
+                    </div>
+                  </div>
+                  
+                  <div class="feature-item">
+                    <svg class="icon feature-icon">
+                      <use href="../sprites/solid.svg#search"></use>
+                    </svg>
+                    <div>
+                      <strong>Enhanced search functionality</strong>
+                      <span>Supporting both name and value searching</span>
+                    </div>
+                  </div>
+                  
+                  <div class="feature-item">
+                    <svg class="icon feature-icon">
+                      <use href="../sprites/solid.svg#clipboard"></use>
+                    </svg>
+                    <div>
+                      <strong>Cookie to Clipboard options</strong>
+                      <span>Copy Name, Value, and Whole Cookie JSON</span>
+                    </div>
+                  </div>
+                  
+                  <div class="feature-item">
+                    <svg class="icon feature-icon">
+                      <use href="../sprites/solid.svg#magic"></use>
+                    </svg>
+                    <div>
+                      <strong>Fluid UI experience</strong>
+                      <span>Improved animations and layout fixes</span>
+                    </div>
+                  </div>
+                  
+                  <div class="feature-item">
+                    <svg class="icon feature-icon">
+                      <use href="../sprites/solid.svg#tachometer-alt"></use>
+                    </svg>
+                    <div>
+                      <strong>Optimized performance</strong>
+                      <span>Faster loading and smoother operation</span>
+                    </div>
+                  </div>
+                  
+                  <div class="feature-item">
+                    <svg class="icon feature-icon">
+                      <use href="../sprites/solid.svg#bug"></use>
+                    </svg>
+                    <div>
+                      <strong>Extensive Bug Fixes</strong>
+                      <span>Various fixes for advanced cookie management and enhanced stability</span>
+                    </div>
+                  </div>
+                </div>
+                
+                <div class="github-links">
+                  <a href="#" data-href="https://github.com/xtremextr/cookie-editor-plus" class="btn btn-primary external-link">
+                    <svg class="icon"><use href="../sprites/solid.svg#external-link-alt"></use></svg>
+                    View on GitHub
+                  </a>
+                </div>
+              </div>
+              
+              <p class="message">
+                Thank you for using Cookie-Editor Plus! We hope you enjoy the enhanced functionality and improvements.
+              </p>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <footer class="app-footer">
+      <div class="footer-content">
+        <div class="footer-links">
+          <a href="https://github.com/cookie-editor/cookie-editor" target="_blank" rel="noopener" class="footer-link">
+            <svg class="icon"><use href="../sprites/solid.svg#github"></use></svg>
+            GitHub
+          </a>
+          <a href="https://cookie-editor.com/" target="_blank" rel="noopener" class="footer-link">
+            <svg class="icon"><use href="../sprites/solid.svg#globe"></use></svg>
+            Website
+          </a>
+          <a href="https://github.com/cookie-editor/cookie-editor/issues/new" target="_blank" rel="noopener" class="footer-link">
+            <svg class="icon"><use href="../sprites/solid.svg#bug"></use></svg>
+            Report Issues
+          </a>
+        </div>
+        <div class="footer-copyright">
+          <span>© 2023 Cookie-Editor Team</span>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Import Strategy Dialog (Initially Hidden) -->
+  <div id="import-strategy-dialog" class="dialog">
+    <div class="dialog-content">
+      <h3>Import Cookies</h3>
+      <p>Found <span id="import-cookie-count">0</span> cookies in the file.</p>
+      <p><strong>Choose an import strategy:</strong></p>
+      <div class="dialog-buttons">
+        <button id="merge-import-strategy" class="button primary">Merge</button>
+        <button id="replace-import-strategy" class="button">Replace All</button>
+        <button id="clear-import-strategy" class="button danger">Clear & Import</button>
+        <button id="cancel-import-strategy" class="button">Cancel</button>
+      </div>
+      <div class="small-text">
+        <p><strong>Merge:</strong> Adds new cookies, skips existing ones.</p>
+        <p><strong>Replace All:</strong> Deletes all current cookies and adds the imported ones.</p>
+        <p><strong>Clear & Import:</strong> Same as Replace All (potentially legacy).</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete All Confirmation Dialog 1 (Initially Hidden) -->
+  <div id="delete-all-confirm-dialog-1" class="confirmation-dialog">
+    <div class="confirmation-message">
+      <p>Are you sure you want to delete ALL your cookies?</p>
+      <p class="small-text danger">This action is irreversible and will log you out of all websites.</p>
+      <div class="button-group">
+        <button id="confirm-delete" class="btn btn-danger">Delete All Cookies</button>
+        <button id="cancel-delete" class="btn btn-secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete All Confirmation Dialog 2 (Type CONFIRM) (Initially Hidden) -->
+  <div id="delete-all-confirm-dialog-2" class="confirmation-dialog">
+    <div class="confirmation-message">
+      <p>Type <strong>CONFIRM</strong> (all caps) to delete all cookies:</p>
+      <input type="text" id="confirm-text-input" class="form-control" placeholder="CONFIRM" />
+      <div id="delete-confirm-error" class="error-message"></div>
+      <div class="button-group">
+        <button id="proceed-delete" class="btn btn-danger">Proceed</button>
+        <button id="cancel-delete-2" class="btn btn-secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Generic Confirmation Dialog -->
+  <div id="generic-confirm-dialog" class="confirmation-dialog">
+    <div class="confirmation-message">
+      <p>Are you sure you want to continue?</p>
+      <div class="button-group">
+        <button class="btn btn-danger confirm-btn">Confirm</button>
+        <button class="btn btn-secondary cancel-btn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add JavaScript files for handling various functionalities -->
+  <script src="external-links.js" defer></script>
+  <!-- Add our modern effects script -->
+  <script src="modern-effects.js" type="module"></script>
+</body>
+</html> 

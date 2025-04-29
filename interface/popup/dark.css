@@ -3,23 +3,25 @@
 }
 
 /* Domain selector dark mode styling */
-[data-theme='dark'] #domain-selector {
-  background-color: var(--secondary-surface-color);
+[data-theme='dark'] #domain-selector-container #domain-selector {
+  background-color: var(--input-bg-color, var(--secondary-surface-color));
   border-color: var(--secondary-border-color);
   color: var(--primary-text-color);
+  -webkit-appearance: none;
+  appearance: none;
 }
 
-[data-theme='dark'] #domain-selector:hover {
+[data-theme='dark'] #domain-selector-container #domain-selector:hover {
   border-color: var(--primary-outline-color);
   background-color: var(--search-surface-hover-color);
 }
 
-[data-theme='dark'] #domain-selector:focus {
+[data-theme='dark'] #domain-selector-container #domain-selector:focus {
   border-color: var(--primary-outline-color);
   outline: none;
 }
 
-[data-theme='dark'] #domain-selector option {
+[data-theme='dark'] #domain-selector-container #domain-selector option {
   background-color: var(--menu-surface-color);
   color: var(--primary-text-color);
 }
@@ -54,15 +56,15 @@
 [data-theme="dark"] .panel-section-footer-button:focus {
   background-color: rgba(255, 255, 255, 0.2);
   border: 1px solid rgba(255, 255, 255, 0.2);
-  color: var(--primary-text-color);
-  fill: var(--primary-text-color);
+  color: #FFFFFF;
+  fill: #FFFFFF;
 }
 [data-theme="dark"] .panel-section-footer-button .tooltip {
   color: var(--primary-text-color);
 }
 [data-theme="dark"] .panel-section-footer-button:hover .tooltip,
 [data-theme="dark"] .panel-section-footer-button:focus .tooltip {
-  color: var(--primary-text-color);
+  color: #FFFFFF;
 }
 
 [data-theme="dark"] #export-menu button:hover {

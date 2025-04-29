@@ -18,9 +18,6 @@ export class ThemeHandler {
     // Listen for system theme changes
     window.matchMedia('(prefers-color-scheme: dark)')
       .addEventListener('change', () => this.updateTheme());
-    
-    // Ensure theme is up-to-date
-    this.updateTheme();
   }
   
   /**
@@ -83,11 +80,6 @@ export class ThemeHandler {
     themeGlobalLink.href = `../theme/${theme}.css`;
     themeGlobalLink.id = 'theme-global-stylesheet';
     
-    const themeContextLink = document.createElement('link');
-    themeContextLink.rel = 'stylesheet';
-    themeContextLink.href = `${theme}.css`;
-    themeContextLink.id = 'theme-context-stylesheet';
-    
     // Create a cleanup style to remove any lingering theme-specific styles
     const cleanupStyle = document.createElement('style');
     cleanupStyle.id = 'theme-cleanup-style';
@@ -107,7 +99,6 @@ export class ThemeHandler {
     document.head.appendChild(transitionStyle);
     document.head.appendChild(cleanupStyle);
     document.head.appendChild(themeGlobalLink);
-    document.head.appendChild(themeContextLink);
     
     // Re-enable transitions and remove cleanup style after a brief delay
     setTimeout(() => {
@@ -117,11 +108,6 @@ export class ThemeHandler {
     
     // Add load event listeners to ensure stylesheets are loaded correctly
     themeGlobalLink.addEventListener('load', () => {
-      // Force a refresh once the stylesheet is loaded
-      document.body.offsetHeight;
-    });
-    
-    themeContextLink.addEventListener('load', () => {
       // Force a refresh once the stylesheet is loaded
       document.body.offsetHeight;
     });

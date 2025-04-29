@@ -224,6 +224,23 @@
     }
   });
   
+  // Listen for the custom event dispatched when the cookie list is refreshed
+  document.addEventListener('cookieListRefreshed', function() {
+    console.log("'cookieListRefreshed' event received, reinitializing selection toggle button");
+    // Re-find and re-setup the toggle button
+    toggleSelectionButton = document.getElementById('toggle-selection');
+    if (toggleSelectionButton) {
+      setupToggleButtonEvents();
+      // If selection was previously enabled, re-enable it visually
+      if (selectionEnabled) {
+        toggleSelectionButton.classList.add('active');
+        updateMenuButtonStates(); // Ensure menu buttons are correct
+      }
+    } else {
+      console.error("Toggle-selection button not found after cookie list refresh event");
+    }
+  });
+  
   /**
    * Wait for the cookie header element to be present in the DOM before initializing
    */

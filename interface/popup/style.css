@@ -394,8 +394,9 @@ button:focus {
 }
 
 .domain-selector-wrapper {
-  flex: 1;
   position: relative;
+  flex: 1;
+  min-width: 0; /* Ensure it doesn't shrink */
 }
 
 #domain-selector {
@@ -1001,6 +1002,8 @@ body,
 .panel-section-footer-button:focus {
   background-color: rgba(0, 0, 0, 0.08);
   border: 1px solid var(--primary-outline-color);
+  color: #FFFFFF; /* Force pure white text on hover for these buttons */
+  fill: #FFFFFF; /* Ensure SVG icons are also pure white */
 }
 .panel-section-footer-button.primary:hover,
 .panel-section-footer-button.primary:focus {
@@ -1031,7 +1034,8 @@ body,
 }
 .panel-section-footer-button:hover .tooltip,
 .panel-section-footer-button:focus .tooltip {
-  color: #444;
+  /* color: #444; Let tooltip inherit color or use a variable */
+  color: var(--secondary-text-color); /* Use theme variable for tooltip */
   opacity: 1;
 }
 

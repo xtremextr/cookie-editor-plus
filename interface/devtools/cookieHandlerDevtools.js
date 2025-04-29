@@ -17,7 +17,22 @@ export class CookieHandlerDevtools extends GenericCookieHandler {
     this.backgroundPageConnection = this.browserDetector
       .getApi()
       .runtime.connect({ name: 'panel' });
+    // Check for immediate connection error after runtime.connect
+    if (this.browserDetector.getApi().runtime.lastError) {
+        console.warn(`DevTools initial connection attempt failed: ${this.browserDetector.getApi().runtime.lastError.message}. Retrying or waiting might be necessary.`);
+        // Optionally, could implement a retry mechanism here or delay further initialization
+        // For now, just logging the warning to avoid the unchecked error.
+    }
+
     this.updateCurrentTab(this.init);
+
+    // Check for immediate connection errors
+    this.backgroundPageConnection.onDisconnect.addListener(() => {
+      const api = this.browserDetector.getApi();
+      if (api.runtime.lastError) {
+        console.warn('DevTools connection to background failed:', api.runtime.lastError.message);
+      }
+    });
   }
 
   /**
@@ -162,15 +177,33 @@ export class CookieHandlerDevtools extends GenericCookieHandler {
    * @param {function} errorCallback
    */
   sendMessage(type, params, callback, errorCallback) {
+    const messagePayload = { type: type, params: params };
+    const api = this.browserDetector.getApi();
+
+    // Define a standard error handler function
+    const handleError = (error) => {
+      if (errorCallback) {
+        errorCallback(error); // Call original error callback if provided
+      } else if (error && error.message && !error.message.includes('Receiving end does not exist')) {
+        // Only log if it's not the expected connection error and no specific handler exists
+        console.warn(`CookieHandlerDevtools: Error sending message type ${type}:`, error.message);
+      }
+      // Otherwise, silently ignore the "Receiving end does not exist" error if no errorCallback was provided
+    };
+
     if (this.browserDetector.supportsPromises()) {
-      this.browserDetector
-        .getApi()
-        .runtime.sendMessage({ type: type, params: params })
-        .then(callback, errorCallback);
+      api.runtime.sendMessage(messagePayload)
+        .then(callback, handleError); // Use the generalized handler for promise rejection
     } else {
-      this.browserDetector
-        .getApi()
-        .runtime.sendMessage({ type: type, params: params }, callback);
+      api.runtime.sendMessage(messagePayload, (response) => {
+          if (api.runtime.lastError) {
+              handleError(api.runtime.lastError); // Use the generalized handler for lastError
+              return;
+          }
+          if (callback) {
+              callback(response);
+          }
+      });
     }
   }
 }

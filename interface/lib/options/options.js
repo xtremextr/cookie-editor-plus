@@ -23,6 +23,7 @@ export class Options {
       searchValues: false
     };
     this.actionButtonPosition = 'left';
+    this.preferredOptionsPage = 'v1';
   }
 }
 

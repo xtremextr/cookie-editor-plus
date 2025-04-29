@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cookie Editor - Cookie Manager</title>
+    <link rel="stylesheet" href="cookie-manager-style.css">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header class="main-header">
+            <div class="logo-container">
+                <img src="../../icons/icon48.png" alt="Cookie Editor Logo" class="logo">
+                <h1>Cookie Editor - Cookie Manager</h1>
+            </div>
+            <nav class="tabs">
+                <a href="#" class="tab active">Manager</a>
+                <a href="options.html" class="tab">Options</a>
+                <a href="about.html" class="tab">About</a>
+            </nav>
+        </header>
+
+        <main class="cookie-manager-content">
+            <!-- Filter Section -->
+            <section class="filter-section">
+                <div class="search-container">
+                    <div class="input-with-icon">
+                        <i class="material-icons">search</i>
+                        <input type="text" id="search-input" placeholder="Search cookies by name, domain or value...">
+                        <button id="clear-search" class="clear-button" title="Clear search">
+                            <i class="material-icons">close</i>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="advanced-filters">
+                    <div class="filter-group">
+                        <label for="domain-filter">Domain:</label>
+                        <select id="domain-filter">
+                            <option value="">All domains</option>
+                        </select>
+                    </div>
+                    
+                    <div class="filter-group">
+                        <span class="filter-label">Secure:</span>
+                        <div class="radio-group">
+                            <label class="radio-label">
+                                <input type="radio" name="secure-filter" value="all" class="filter-radio" data-filter="secure" checked>
+                                All
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="secure-filter" value="secure" class="filter-radio filter-checkbox" data-filter="secure">
+                                Yes
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="secure-filter" value="not-secure" class="filter-radio filter-checkbox" data-filter="secure">
+                                No
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="filter-group">
+                        <span class="filter-label">Session:</span>
+                        <div class="radio-group">
+                            <label class="radio-label">
+                                <input type="radio" name="session-filter" value="all" class="filter-radio" data-filter="session" checked>
+                                All
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="session-filter" value="session" class="filter-radio filter-checkbox" data-filter="session">
+                                Yes
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="session-filter" value="not-session" class="filter-radio filter-checkbox" data-filter="session">
+                                No
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="filter-group">
+                        <span class="filter-label">HTTP Only:</span>
+                        <div class="radio-group">
+                            <label class="radio-label">
+                                <input type="radio" name="http-only-filter" value="all" class="filter-radio" data-filter="httpOnly" checked>
+                                All
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="http-only-filter" value="http-only" class="filter-radio filter-checkbox" data-filter="httpOnly">
+                                Yes
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="http-only-filter" value="not-http-only" class="filter-radio filter-checkbox" data-filter="httpOnly">
+                                No
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Batch Operations -->
+            <section id="batch-operations" class="batch-operations">
+                <div class="selected-info">
+                    <span id="selected-count">0 selected</span>
+                </div>
+                <div class="batch-actions">
+                    <button id="delete-selected" class="btn danger">
+                        <i class="material-icons">delete</i>
+                        Delete Selected
+                    </button>
+                    <button id="export-selected" class="btn">
+                        <i class="material-icons">file_download</i>
+                        Export Selected
+                    </button>
+                </div>
+            </section>
+
+            <!-- Table Section -->
+            <section class="table-container">
+                <div id="table-loading" class="loading-overlay">
+                    <div class="spinner"></div>
+                    <span>Loading cookies...</span>
+                </div>
+                
+                <table class="cookie-table">
+                    <thead>
+                        <tr>
+                            <th class="checkbox-header">
+                                <input type="checkbox" id="select-all-checkbox" title="Select all cookies">
+                            </th>
+                            <th class="table-header-cell" data-sort="name">Name <i class="material-icons sort-icon">arrow_upward</i></th>
+                            <th class="table-header-cell" data-sort="domain">Domain <i class="material-icons sort-icon">arrow_upward</i></th>
+                            <th class="table-header-cell" data-sort="value">Value <i class="material-icons sort-icon">arrow_upward</i></th>
+                            <th class="table-header-cell" data-sort="expirationDate">Expiration <i class="material-icons sort-icon">arrow_upward</i></th>
+                            <th class="table-header-cell">Attributes</th>
+                            <th class="actions-header">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="cookie-table-body">
+                        <!-- Cookie rows will be added here dynamically -->
+                    </tbody>
+                </table>
+                
+                <div id="no-results-message" class="no-results">
+                    <i class="material-icons">search_off</i>
+                    <p>No cookies match your filter criteria</p>
+                </div>
+                
+                <div class="table-footer">
+                    <div class="page-size-selector">
+                        <label for="page-size-selector">Cookies per page:</label>
+                        <select id="page-size-selector">
+                            <option value="10">10</option>
+                            <option value="15" selected>15</option>
+                            <option value="25">25</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                        </select>
+                    </div>
+                    
+                    <div id="table-pagination" class="pagination">
+                        <!-- Pagination will be added here dynamically -->
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+    
+    <!-- Cookie Editor Modal -->
+    <div id="cookie-editor-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modal-title">Edit Cookie</h2>
+                <button id="close-modal" class="close-button">
+                    <i class="material-icons">close</i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <!-- Cookie editor form will be added here dynamically -->
+                <form id="cookie-edit-form">
+                    <div class="form-group">
+                        <label for="cookie-name">Name</label>
+                        <input type="text" id="cookie-name" name="name" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="cookie-domain">Domain</label>
+                        <input type="text" id="cookie-domain" name="domain" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="cookie-path">Path</label>
+                        <input type="text" id="cookie-path" name="path" required>
+                    </div>
+                    
+                    <div class="form-group full-width">
+                        <label for="cookie-value">Value</label>
+                        <textarea id="cookie-value" name="value" rows="4"></textarea>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="cookie-expiration">Expiration</label>
+                            <div class="expiration-inputs">
+                                <select id="expiration-type">
+                                    <option value="session">Session</option>
+                                    <option value="custom">Custom</option>
+                                </select>
+                                <input type="datetime-local" id="cookie-expiration" name="expiration" disabled>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Checkbox Group for Flags -->
+                    <div class="form-group checkbox-group-container">
+                        <label>Attributes</label>
+                        <div class="checkbox-group">
+                            <label class="tooltip">
+                                <input type="checkbox" id="cookie-secure" name="secure">
+                                Secure
+                                <span class="tooltip-text">Only send over HTTPS</span>
+                            </label>
+                            <label class="tooltip">
+                                <input type="checkbox" id="cookie-http-only" name="httpOnly">
+                                HTTP Only
+                                <span class="tooltip-text">Not accessible via JavaScript</span>
+                            </label>
+                            <label class="tooltip">
+                                <input type="checkbox" id="cookie-session-only" name="sessionOnly">
+                                Session
+                                <span class="tooltip-text">Expires when the browser closes</span>
+                            </label>
+                            <label class="tooltip">
+                                <input type="checkbox" id="cookie-host-only" name="hostOnly">
+                                Host Only
+                                <span class="tooltip-text">Not sent to subdomains</span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="cookie-same-site">SameSite</label>
+                        <select id="cookie-same-site" name="sameSite">
+                            <option value="no_restriction">No Restriction</option>
+                            <option value="lax">Lax</option>
+                            <option value="strict">Strict</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button id="save-cookie" class="btn primary">Save Changes</button>
+                <button id="cancel-edit" class="btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Notification Toast -->
+    <div id="notification-toast" class="notification-toast">
+        <div class="notification-content">
+            <span id="notification-message"></span>
+            <button id="close-notification" class="close-button">
+                <i class="material-icons">close</i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="cookie-manager-notification.js"></script>
+    <script src="cookie-manager-editor.js"></script>
+    <script src="cookie-manager-table.js"></script>
+    <script src="cookie-manager.js"></script>
+</body>
+</html> 

@@ -23,7 +23,8 @@ export class BrowserDetector {
     }
 
     try {
-      this.supportSidePanel = typeof this.getApi().sidePanel !== 'undefined';
+      // Check for existence of the key instead of accessing the property directly
+      this.supportSidePanel = 'sidePanel' in this.getApi();
       console.info('SidePanel support: ', this.supportSidePanel);
     } catch (e) {
       /* empty */

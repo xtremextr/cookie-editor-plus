@@ -1,0 +1,18 @@
+/* Style fix to restore button colors */
+:root {
+  /* Define button colors explicitly */
+  --button-primary-surface-color: #1b98f1 !important;
+  --button-primary-text-color: #ffffff !important;
+}
+
+/* Override any other styles that might be affecting the buttons */
+.btn-primary {
+  background-color: var(--button-primary-surface-color) !important;
+  color: var(--button-primary-text-color) !important;
+  background-image: none !important;
+  background: var(--button-primary-surface-color) !important;
+}
+
+.btn-primary:hover {
+  background-color: var(--primary-accent-darker, var(--primary-link-hover-color)) !important;
+} 

@@ -2,9 +2,9 @@
 	"manifest_version": 3,
 	"name": "Cookie Editor Plus",
 	"short_name": "Cookie Editor",
-	"version": "2.9.5",
+	"version": "2.9.8",
 	"author": "X",
-	"description": "A powerful cookie editor that lets you create, edit, and delete cookies.",
+	"description": "Manage your Cookies chrome-wide, fast switch between profiles and domains and securely share your cookies with whoever you want.",
 	"offline_enabled": true,
 	"minimum_chrome_version": "102",
 	"background": {
@@ -26,7 +26,8 @@
 	},
 	"devtools_page": "interface/devtools/devtool.html",
 	"options_ui": {
-		"page": "interface/options/options.html"
+		"page": "interface/options/options-v2.html",
+		"open_in_tab": true
 	},
 	"permissions": [
 		"cookies",

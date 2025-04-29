@@ -10,11 +10,44 @@
   <link rel="stylesheet" href="style.css" />
   <link rel="stylesheet" href="../theme/switch.css" />
   <title>Cookie-Editor Plus Options</title>
+  <style>
+    .new-options-button {
+      display: flex;
+      margin: 15px;
+      padding: 10px 15px;
+      background: var(--primary-accent-color, #4285f4);
+      color: white;
+      text-decoration: none;
+      border-radius: 4px;
+      font-weight: bold;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    }
+    .new-options-button:hover {
+      transform: translateY(-2px);
+      background: var(--primary-accent-darker, #3367d6);
+      box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+    }
+    .new-options-icon {
+      width: 24px;
+      height: 24px;
+    }
+  </style>
 </head>
 
 <body>
   <div class="page-wrapper">
     <div class="container">
+      <a href="options-v2.html" class="new-options-button">
+        <svg class="new-options-icon">
+          <use href="../sprites/solid.svg#rocket"></use>
+        </svg>
+        Try the new v2 options page!
+      </a>
+      
       <!-- Notification area -->
       <div id="notification" class="notification hidden"></div>
       
@@ -164,6 +197,22 @@
       </fieldset>
 
       <fieldset>
+        <legend>Site Permissions</legend>
+        <div class="input-container">
+          <button id="allow-all-permissions">Allow All Sites</button>
+          <button id="revoke-all-permissions">Revoke All Sites</button>
+        </div>
+        <div class="input-container">
+          <label for="allow-domain-input">Allow Specific Domain:</label>
+          <input type="text" id="allow-domain-input" placeholder="example.com" style="width: 200px;" />
+          <button id="allow-domain-btn">Allow Domain</button>
+        </div>
+        <div class="hint">
+          Use these controls to manage which sites the extension can access cookies for. Granting permission for a domain will allow both HTTP and HTTPS cookies to be managed for that domain.
+        </div>
+      </fieldset>
+
+      <fieldset>
         <legend>All Cookies</legend>
         <div class="notice danger">
           <svg class="icon">
@@ -174,6 +223,16 @@
           Do not share your cookies exported from here to anyone you do not
           fully trust. Giving some your cookies this way will give them access
           to every account you are currently logged in.
+        </div>
+        <div class="input-container">
+          Import Cookies
+          <div class="button-group">
+            <button id="import-cookies">Import JSON</button>
+            <input type="file" id="cookie-file-input" accept=".json" style="display: none;" />
+          </div>
+          <div class="hint">
+            Import cookies from a JSON file. The format should match that produced by the export function.
+          </div>
         </div>
         <div class="input-container">
           Export All Cookies

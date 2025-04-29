@@ -1,6 +1,8 @@
 import { BrowserDetector } from './interface/lib/browserDetector.js';
 import { PermissionHandler } from './interface/lib/permissionHandler.js';
 import { extractSharedDataFromUrl } from './interface/lib/sharing/cookieSharing.js';
+import { GenericStorageHandler } from './interface/lib/genericStorageHandler.js';
+import { OptionsHandler } from './interface/lib/optionsHandler.js';
 
 (function () {
   
@@ -10,6 +12,8 @@ import { extractSharedDataFromUrl } from './interface/lib/sharing/cookieSharing.
   const connections = {};
   const browserDetector = new BrowserDetector();
   const permissionHandler = new PermissionHandler(browserDetector);
+  const storageHandler = new GenericStorageHandler(browserDetector);
+  const optionsHandler = new OptionsHandler(browserDetector, storageHandler);
 
   // Track domains we have permission for
   const permittedDomains = new Set();
@@ -48,6 +52,9 @@ import { extractSharedDataFromUrl } from './interface/lib/sharing/cookieSharing.
   browserDetector.getApi().runtime.onMessage.addListener(handleMessage);
   browserDetector.getApi().tabs.onUpdated.addListener(onTabsChanged);
 
+  // Set up options page redirection based on user preference
+  setupOptionsRedirect();
+
   if (!browserDetector.isSafari()) {
     browserDetector.getApi().cookies.onChanged.addListener(onCookiesChanged);
   }
@@ -66,7 +73,15 @@ import { extractSharedDataFromUrl } from './interface/lib/sharing/cookieSharing.
       // Clear any existing badge
       const action = browserDetector.getApi().action || browserDetector.getApi().browserAction;
       if (action && action.setBadgeText) {
-        action.setBadgeText({ text: "" });
+        try {
+          action.setBadgeText({ text: "" });
+        } catch (e) {
+          console.warn('Error resetting badge text (ignored):', e.message);
+        }
+        if (browserDetector.getApi().runtime.lastError) {
+          // Log but don't throw, prevent unchecked error
+          console.warn('runtime.lastError after resetting badge text:', browserDetector.getApi().runtime.lastError.message);
+        }
       }
     } catch (error) {
       console.error('Error resetting badge state:', error);
@@ -84,13 +99,34 @@ import { extractSharedDataFromUrl } from './interface/lib/sharing/cookieSharing.
       const action = browserDetector.getApi().action || browserDetector.getApi().browserAction;
       if (action) {
         if (action.setBadgeText) {
-          action.setBadgeText({ text: text });
+          try {
+            action.setBadgeText({ text: text });
+          } catch (e) {
+             console.warn('Error setting badge text (ignored):', e.message);
+          }
+          if (browserDetector.getApi().runtime.lastError) {
+            console.warn('runtime.lastError after setting badge text:', browserDetector.getApi().runtime.lastError.message);
+          }
         }
         if (action.setBadgeBackgroundColor) {
-          action.setBadgeBackgroundColor({ color: color });
+          try {
+            action.setBadgeBackgroundColor({ color: color });
+          } catch (e) {
+            console.warn('Error setting badge background color (ignored):', e.message);
+          }
+          if (browserDetector.getApi().runtime.lastError) {
+            console.warn('runtime.lastError after setting badge background color:', browserDetector.getApi().runtime.lastError.message);
+          }
         }
         if (action.setTitle) {
-          action.setTitle({ title: title });
+          try {
+            action.setTitle({ title: title });
+          } catch (e) {
+             console.warn('Error setting badge title (ignored):', e.message);
+          }
+          if (browserDetector.getApi().runtime.lastError) {
+            console.warn('runtime.lastError after setting badge title:', browserDetector.getApi().runtime.lastError.message);
+          }
         }
       }
     } catch (error) {
@@ -106,6 +142,10 @@ import { extractSharedDataFromUrl } from './interface/lib/sharing/cookieSharing.
    */
   function loadPermittedDomains() {
     browserDetector.getApi().storage.local.get('permittedDomains', (result) => {
+      if (browserDetector.getApi().runtime.lastError) {
+        console.warn('Error loading permitted domains:', browserDetector.getApi().runtime.lastError.message);
+        return;
+      }
       if (result && result.permittedDomains && Array.isArray(result.permittedDomains)) {
         result.permittedDomains.forEach(domain => permittedDomains.add(domain));
       }
@@ -297,179 +337,212 @@ import { extractSharedDataFromUrl } from './interface/lib/sharing/cookieSharing.
   }
 
   /**
-   * Handles messages coming from the front end, mostly from the dev tools.
-   * Devtools require special handling because not all APIs are available in
-   * there, such as tab and permissions.
-   * @param {object} request contains the message.
-   * @param {MessageSender} sender references the sender of the message, not
-   *    used.
-   * @param {function} sendResponse callback to respond to the sender.
-   * @return {boolean} sometimes
+   * Handle messages from content scripts and other extension components
+   * @param {Object} request - The message object
+   * @param {Object} sender - The sender info
+   * @param {Function} sendResponse - Function to send response
+   * @returns {boolean} - Whether the response will be sent asynchronously
    */
   function handleMessage(request, sender, sendResponse) {
-    
-    switch (request.type) {
-      case 'getTabs': {
-        browserDetector.getApi().tabs.query({}, function (tabs) {
-          sendResponse(tabs);
-        });
-        return true;
-      }
-      case 'getCurrentTab': {
-        browserDetector
-          .getApi()
-          .tabs.query(
-            { active: true, currentWindow: true },
-            function (tabInfo) {
-              sendResponse(tabInfo);
-            },
-          );
-        return true;
-      }
-      case 'getAllCookies': {
-        const getAllCookiesParams = {
-          url: request.params.url,
-        };
-        if (browserDetector.supportsPromises()) {
-          browserDetector
-            .getApi()
-            .cookies.getAll(getAllCookiesParams)
-            .then(sendResponse);
-        } else {
-          browserDetector
-            .getApi()
-            .cookies.getAll(getAllCookiesParams, sendResponse);
+    try {
+      // Check if this is a shared cookie or profile message
+      if (request.type === 'checkForSharedData') {
+        if (request.url) {
+          checkUrlForSharedCookies(request.url);
         }
-        return true;
+        sendResponse({ success: true });
+        return false;
       }
-      case 'saveCookie': {
-        if (browserDetector.supportsPromises()) {
-          browserDetector
-            .getApi()
-            .cookies.set(request.params.cookie)
-            .then(
-              (cookie) => {
-                sendResponse(null, cookie);
-              },
-              (error) => {
-                
-                sendResponse(error.message, null);
-              },
-            );
-        } else {
-          browserDetector
-            .getApi()
-            .cookies.set(request.params.cookie, (cookie) => {
-              if (cookie) {
-                sendResponse(null, cookie);
-              } else {
-                const error = browserDetector.getApi().runtime.lastError;
-                
-                sendResponse(error.message, cookie);
+      
+      // Handle clear shared data request
+      if (request.type === 'clearSharedData') {
+        resetBadgeState();
+        browserDetector.getApi().storage.local.remove('pendingSharedData');
+        sendResponse({ success: true });
+        return false;
+      }
+      
+      // Handle optionsChanged message
+      if (request.type === 'optionsChanged') {
+        console.log('Received optionsChanged message, reloading options...');
+        optionsHandler.loadOptions().then(() => {
+          for (let id in connections) {
+            const port = connections[id];
+            if (port) {
+              try {
+                port.postMessage({
+                  type: 'optionsChanged',
+                });
+              } catch (e) {
+                console.warn(`Failed to forward optionsChanged to port ${port.name || 'unknown'}:`, e.message);
               }
+            }
+          }
+        }).catch(error => {
+          console.error('Error reloading options after optionsChanged message:', error);
+        });
+        return false;
+      }
+      
+      // Check if this is a permission request for a specific URL
+      if (request.type === 'requestPermission') {
+        console.log('Received permission request for URL:', request.url);
+        
+        // Need to handle this async
+        permissionHandler.requestPermission(request.url)
+          .then(result => {
+            console.log('Permission request result:', result);
+            if (result && request.url) {
+              // Add to our list of permitted domains
+              addPermittedDomain(request.url);
+            }
+            sendResponse({ success: result });
+          })
+          .catch(error => {
+            console.error('Error requesting permission:', error);
+            sendResponse({ success: false, error: error.message || 'Unknown error' });
+          });
+        
+        return true; // Will respond asynchronously
+      }
+
+      // Check if this is a permission request for ALL URLs
+      if (request.type === 'permissionsRequest' && request.params === '<all_urls>') {
+        console.log('Received permission request for <all_urls>');
+        
+        // Need to handle this async
+        permissionHandler.requestPermission('<all_urls>')
+          .then(result => {
+            console.log('Permission request result for <all_urls>:', result);
+            sendResponse(result); // Send back true/false based on grant
+          })
+          .catch(error => {
+            console.error('Error requesting <all_urls> permission:', error);
+            sendResponse(false); // Send false on error
+          });
+        
+        return true; // Will respond asynchronously
+      }
+      
+      // Check if this is a permission check
+      if (request.type === 'checkPermission') {
+        console.log('Received permission check for URL:', request.url);
+        
+        // Need to handle this async
+        hasPermissionForUrl(request.url)
+          .then(result => {
+            console.log('Permission check result:', result);
+            sendResponse({ hasPermission: result });
+          })
+          .catch(error => {
+            console.error('Error checking permission:', error);
+            sendResponse({ hasPermission: false, error: error.message || 'Unknown error' });
+          });
+        
+        return true; // Will respond asynchronously
+      }
+      
+      // If this is a cookie-related message, check permissions first
+      if (['getAllCookies', 'getCookies', 'saveCookie', 'removeCookie'].includes(request.type)) {
+        if (request.url) {
+          // Add this URL's domain to our permitted list (if we can)
+          hasPermissionForUrl(request.url)
+            .then(hasPermission => {
+              if (hasPermission) {
+                addPermittedDomain(request.url);
+              }
+            })
+            .catch(error => {
+              console.warn('Error checking permission during cookie request:', error);
             });
         }
-        return true;
       }
-      case 'removeCookie': {
-        const removeParams = {
-          name: request.params.name,
-          url: request.params.url,
-          storeId: request.params.storeId
-        };
-        if (browserDetector.supportsPromises()) {
-          browserDetector
-            .getApi()
-            .cookies.remove(removeParams)
-            .then(sendResponse);
-        } else {
-          browserDetector.getApi().cookies.remove(removeParams, sendResponse);
+      
+      // Everything else is handled by the extension listener
+      if (request.type && request.type !== 'getCookieCount') {
+        for (let id in connections) {
+          connections[id].postMessage(request);
         }
-        return true;
       }
-      case 'permissionsContains': {
-        permissionHandler.checkPermissions(request.params).then(sendResponse);
-        return true;
-      }
-      case 'permissionsRequest': {
-        // When a permission is granted, add it to our permitted domains list
-        permissionHandler.requestPermission(request.params).then((result) => {
-          sendResponse(result);
-        });
-        return true;
-      }
-      case 'optionsChanged': {
-        sendMessageToAllTabs('optionsChanged', {
-          from: request.params.from,
-        });
-        return true;
-      }
-      case 'updateBadge': {
-        // Update badge for cookie sharing/importing
-        try {
-          if (request.params && request.params.text) {
-            updateBadge(
-              request.params.text,
-              request.params.color || "#FF0000",
-              request.params.title || "Cookie-Editor Plus"
-            );
-          } else {
-            resetBadgeState();
-          }
-          sendResponse({ success: true });
-        } catch (error) {
-          console.error('Error updating badge:', error);
-          sendResponse({ success: false, error: error.message });
-        }
-        return true;
-      }
-      case 'clearBadge': {
-        // Clear the badge when requested (after cookies are imported)
-        resetBadgeState();
-        return true;
-      }
-      case 'checkForSharedCookies': {
-        // Check the current tab for shared cookies
-        if (request.params && request.params.url) {
-          checkUrlForSharedCookies(request.params.url);
-        }
-        return true;
-      }
+      
+      return false;
+    } catch (error) {
+      console.error('Error handling message:', error);
+      sendResponse({ success: false, error: error.message || 'Unknown error' });
+      return false;
     }
   }
 
   /**
-   * Handles connections from clients to this script.
-   * @param {Port} port An object which allows two way communication with other
-   *    pages.
+   * Handle connection from popup, content script, or devtools
+   * @param {Port} port - The connection port
    */
   function onConnect(port) {
-    const extensionListener = function (request, port) {
-      
-      switch (request.type) {
-        case 'init_cookieHandler':
-          
-          connections[request.tabId] = port;
+    console.log('New connection established:', port.name);
+    
+    // Store the connection
+    var extensionListener = function (request, port) {
+      try {
+        if (request.action === 'initCount') {
+          // Special handler for cookie count initialization
+          const address = request.payload;
+          if (address) {
+            connections[address] = port;
+            port.postMessage({
+              action: 'countUpdate',
+              payload: { count: 'N/A' }
+            });
+          }
           return;
-        case 'init_optionsHandler':
-          
-          connections[port.name] = port;
+        }
+
+        if (request.type) {
+          if (request.type === 'getPermissionStatus') {
+            // Handle permission status request
+            hasPermissionForUrl(request.url)
+              .then(result => {
+                port.postMessage({ 
+                  type: 'permissionResponse', 
+                  hasPermission: result 
+                });
+              })
+              .catch(error => {
+                console.error('Error getting permission status:', error);
+                port.postMessage({ 
+                  type: 'permissionResponse', 
+                  hasPermission: false,
+                  error: error.message || 'Unknown error'
+                });
+              });
           return;
       }
 
-      // other message handling.
+          // Log cookie operations for debugging purposes
+          if (['getAllCookies', 'getCookies', 'saveCookie', 'removeCookie'].includes(request.type)) {
+            console.log(`Cookie operation requested: ${request.type}`, 
+                         request.url ? `for URL: ${request.url}` : '');
+          }
+        }
+      } catch (error) {
+        console.error('Error handling port message:', error);
+        port.postMessage({ 
+          type: 'error', 
+          error: error.message || 'Unknown error in background script'
+        });
+      }
     };
 
-    // Listen to messages sent from the DevTools page.
+    // Listen for messages on this connection
     port.onMessage.addListener(extensionListener);
 
-    port.onDisconnect.addListener(function (port) {
+    // Clean up when connection is closed
+    port.onDisconnect.addListener(function(port) {
       port.onMessage.removeListener(extensionListener);
-      const tabs = Object.keys(connections);
-      for (let i = 0; i < tabs.length; i++) {
-        if (connections[tabs[i]] === port) {
           
-          delete connections[tabs[i]];
+      // Remove from connections
+      for (let id in connections) {
+        if (connections[id] === port) {
+          delete connections[id];
           break;
         }
       }
@@ -517,10 +590,20 @@ import { extractSharedDataFromUrl } from './interface/lib/sharing/cookieSharing.
 
     for (let i = 0; i < tabs.length; i++) {
       const port = connections[tabs[i]];
-      port.postMessage({
-        type: type,
-        params: params,
-      });
+      // Check if port exists before trying to post (belt-and-suspenders)
+      if (port) { 
+        try {
+          port.postMessage({
+            type: type,
+            params: params,
+          });
+        } catch (e) {
+          console.warn(`Failed to send message type '${type}' to port ${port.name || 'unknown'}:`, e.message);
+          // Optionally, consider disconnecting/removing the port here if postMessage fails
+          // delete connections[tabs[i]]; 
+          // port.disconnect(); 
+        }
+      }
     }
   }
 
@@ -575,12 +658,22 @@ import { extractSharedDataFromUrl } from './interface/lib/sharing/cookieSharing.
           continue;
         }
         const port = connections[tabId];
-        port.postMessage({
-          type: 'cookiesChanged',
-          params: {
-            changeInfo: changeInfo,
-          },
-        });
+        // Check if port exists before trying to post
+        if (port) {
+          try {
+            port.postMessage({
+              type: 'cookiesChanged',
+              params: {
+                changeInfo: changeInfo,
+              },
+            });
+          } catch (e) {
+             console.warn(`Failed to send cookiesChanged message to port ${port.name || 'unknown'}:`, e.message);
+             // Optionally remove problematic port
+             // delete connections[tabId];
+             // port.disconnect();
+          }
+        }
       }
     }, 800); // Increased debounce delay to reduce frequency of updates
   }
@@ -619,9 +712,14 @@ import { extractSharedDataFromUrl } from './interface/lib/sharing/cookieSharing.
         tabId: tabId,
         url: tab.url // Include the updated URL
       }).catch(error => {
-        // Ignore errors like "Could not establish connection. Receiving end does not exist."
-        // which happen if no popup/sidepanel is open.
-        if (!error.message.includes('Receiving end does not exist')) {
+        // Explicitly handle the "Receiving end does not exist" error.
+        // This is expected if no UI (popup, sidepanel, devtools) is open to receive the message.
+        if (error.message.includes('Receiving end does not exist')) {
+           // Log as a warning, not an error, as this is expected behavior.
+           // console.warn('No active UI found to receive requestCookieRefresh message.'); // Optional: uncomment for debugging
+           return; // Explicitly return to mark the promise as handled.
+        } else {
+          // Log other unexpected errors.
           console.error('Error sending requestCookieRefresh message:', error);
         }
       });
@@ -674,6 +772,43 @@ import { extractSharedDataFromUrl } from './interface/lib/sharing/cookieSharing.
 
     callback(false);
     return;
+  }
+
+  /**
+   * Set up a listener to redirect the options page based on user preference
+   */
+  function setupOptionsRedirect() {
+    try {
+      // Safari doesn't support chrome.runtime.onOpenOptionsPage
+      if (browserDetector.isSafari()) {
+        return;
+      }
+
+      const api = browserDetector.getApi();
+      if (api.runtime.onOpenOptionsPage) {
+        api.runtime.onOpenOptionsPage.addListener(async () => {
+          // Load options to get the latest preference
+          await optionsHandler.loadOptions();
+          const preferredPage = optionsHandler.getPreferredOptionsPage();
+          
+          // Open the appropriate options page based on preference
+          if (preferredPage === 'v2') {
+            // Open v2 in a new tab
+            api.tabs.create({
+              url: api.runtime.getURL('interface/options/options-v2.html')
+            });
+          } else {
+            // Open original options as a popup
+            api.runtime.openOptionsPage();
+          }
+          
+          // Prevent the default options page from opening
+          return true;
+        });
+      }
+    } catch (error) {
+      console.error('Error setting up options redirect:', error);
+    }
   }
 })();
 
